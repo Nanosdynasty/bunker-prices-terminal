@@ -1,0 +1,13 @@
+{
+  "name": "bunker-prices-terminal",
+  "version": "1.0.0",
+  "description": "Howe Robinson Bunker Prices Terminal",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "build": "echo 'Static assets ready'"
+  },
+  "keywords": [],
+  "author": "Howe Robinson",
+  "license": "ISC"
+}

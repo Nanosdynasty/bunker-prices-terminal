@@ -1,5 +1,7 @@
 services:
-  - type: static
+  - type: web
     name: howerobinsonbunkerprices
-    buildCommand: ""
-    staticPublishPath: .
+    env: node
+    buildCommand: npm run build
+    startCommand: npm start
+    plan: free
