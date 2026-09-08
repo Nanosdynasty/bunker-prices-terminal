@@ -1,0 +1,5 @@
+services:
+  - type: static
+    name: howerobinsonbunkerprices
+    buildCommand: ""
+    staticPublishPath: .
