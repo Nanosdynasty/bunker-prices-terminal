@@ -413,22 +413,35 @@ function switchChartTab(tab) {
   currentChartTab = tab;
   const hist = document.getElementById('historical-chart-container');
   const tv   = document.getElementById('tradingview-chart-container');
+  const excelView = document.getElementById('excel-sync-view-container');
   const sliderBox = document.getElementById('chart-slider-container');
-  const btns = document.querySelectorAll('.chart-tab-btn');
+  
+  const bHist = document.getElementById('tab-btn-historical');
+  const bTv = document.getElementById('tab-btn-tradingview');
+  const bExcel = document.getElementById('tab-btn-excel-sync');
 
-  btns.forEach(b => b.classList.remove('active'));
-  document.querySelectorAll('.chart-tab-btn')[tab === 'historical' ? 0 : 1].classList.add('active');
+  if (bHist) bHist.classList.toggle('active', tab === 'historical');
+  if (bTv) bTv.classList.toggle('active', tab === 'tradingview');
+  if (bExcel) bExcel.classList.toggle('active', tab === 'excel-sync');
 
   if (tab === 'historical') {
     hist.style.display = 'block';
     tv.style.display = 'none';
+    if (excelView) excelView.style.display = 'none';
     sliderBox.style.display = 'flex';
     rebuildChart();
-  } else {
+  } else if (tab === 'tradingview') {
     hist.style.display = 'none';
     tv.style.display = 'block';
+    if (excelView) excelView.style.display = 'none';
     sliderBox.style.display = 'none';
     buildTradingViewWidget();
+  } else if (tab === 'excel-sync') {
+    hist.style.display = 'none';
+    tv.style.display = 'none';
+    if (excelView) excelView.style.display = 'block';
+    sliderBox.style.display = 'none';
+    renderExcelSyncView();
   }
 }
 
@@ -609,6 +622,204 @@ function updateSyncHeaderTag(active, filename, sheet) {
   if (tag) {
     tag.style.display = active ? 'inline-block' : 'none';
     tag.textContent = `🟢 Sync: ${filename} [${sheet}]`;
+  }
+}
+
+// ─── Excel Live View & Metadata Rendering ────────────────────────────────────
+let currentSyncState = null;
+let autoRefreshEnabled = true;
+
+async function renderExcelSyncView() {
+  try {
+    const data = await apiFetch('/api/state');
+    currentSyncState = data;
+    updateSyncViewDOM(data);
+  } catch (err) {
+    updateSyncViewDOMFallback();
+  }
+}
+
+function updateSyncViewDOM(data) {
+  const selection = data.selection || {};
+  const statusText = document.getElementById('excel-sync-status-text');
+  const timeBadge = document.getElementById('excel-sync-time-badge');
+  const allowedFolder = document.getElementById('excel-allowed-folder');
+  const folderStatus = document.getElementById('excel-folder-status');
+
+  const metaConn = document.getElementById('excel-meta-connection');
+  const metaFilename = document.getElementById('excel-meta-filename');
+  const metaSheet = document.getElementById('excel-meta-worksheet');
+  const metaModified = document.getElementById('excel-meta-modified');
+  const metaCheck = document.getElementById('excel-meta-last-check');
+  const metaLoad = document.getElementById('excel-meta-last-load');
+  const metaChanged = document.getElementById('excel-meta-changed');
+  const metaPreview = document.getElementById('excel-meta-preview-status');
+  const sheetDropdown = document.getElementById('excel-view-sheet-dropdown');
+
+  if (statusText) statusText.textContent = selection.worksheet ? 'Worksheet loaded.' : 'No active worksheet linked.';
+  if (timeBadge) timeBadge.textContent = selection.last_load ? `Updated ${selection.last_load.slice(11, 19)}` : 'Updated --:--:--';
+  if (allowedFolder) allowedFolder.textContent = data.configured_root || `C:\\Users\\deepak\\OneDrive\\onedrivebunker`;
+  if (folderStatus) folderStatus.textContent = data.connected ? 'Available' : 'Unavailable';
+
+  if (metaConn) metaConn.textContent = selection.relative_path ? 'Direct local file' : 'Client file upload';
+  if (metaFilename) metaFilename.textContent = selection.filename || (currentSyncFile || 'Book 2.xlsx');
+  if (metaSheet) metaSheet.textContent = selection.worksheet || (currentSyncSheet || 'Sheet1');
+  if (metaModified) metaModified.textContent = selection.file_modified ? formatDisplayDate(selection.file_modified) : formatDisplayDate(new Date().toISOString());
+  if (metaCheck) metaCheck.textContent = selection.last_check ? formatDisplayDate(selection.last_check) : formatDisplayDate(new Date().toISOString());
+  if (metaLoad) metaLoad.textContent = selection.last_load ? formatDisplayDate(selection.last_load) : formatDisplayDate(new Date().toISOString());
+  if (metaChanged) metaChanged.textContent = selection.changed_detected ? 'Yes' : 'No';
+  if (metaPreview) metaPreview.textContent = 'Current at last check';
+
+  if (sheetDropdown && selection.sheet_names) {
+    sheetDropdown.innerHTML = selection.sheet_names.map(s => 
+      `<option value="${s}" ${s === selection.worksheet ? 'selected' : ''}>${s}</option>`
+    ).join('');
+  }
+
+  // Render Grid
+  if (selection.preview) {
+    renderSpreadsheetGrid(selection.preview.columns, selection.preview.rows, selection.preview.row_count, selection.preview.column_count);
+  } else if (selection.raw_matrix) {
+    renderRawMatrixGrid(selection.raw_matrix);
+  }
+}
+
+function updateSyncViewDOMFallback() {
+  const metaFilename = document.getElementById('excel-meta-filename');
+  const metaSheet = document.getElementById('excel-meta-worksheet');
+  if (metaFilename) metaFilename.textContent = currentSyncFile || 'Book 2.xlsx';
+  if (metaSheet) metaSheet.textContent = currentSyncSheet || 'Sheet1';
+}
+
+function formatDisplayDate(isoStr) {
+  if (!isoStr) return '--/--/----';
+  try {
+    const d = new Date(isoStr);
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    const hours = String(d.getHours()).padStart(2, '0');
+    const mins = String(d.getMinutes()).padStart(2, '0');
+    const secs = String(d.getSeconds()).padStart(2, '0');
+    return `${day}/${month}/${year}, ${hours}:${mins}:${secs}`;
+  } catch(e) {
+    return isoStr;
+  }
+}
+
+function renderSpreadsheetGrid(colNames, rowData, rowCount, colCount) {
+  const thead = document.getElementById('excel-grid-thead');
+  const tbody = document.getElementById('excel-grid-tbody');
+  const rowCountEl = document.getElementById('grid-row-count');
+  const colCountEl = document.getElementById('grid-col-count');
+
+  if (rowCountEl) rowCountEl.textContent = rowCount || rowData.length;
+  if (colCountEl) colCountEl.textContent = colCount || (colNames ? colNames.length : 15);
+
+  if (thead && colNames) {
+    thead.innerHTML = `<tr>
+      <th style="width:45px;">#</th>
+      ${colNames.map(c => `<th>${c}</th>`).join('')}
+    </tr>`;
+  }
+
+  if (tbody && rowData) {
+    tbody.innerHTML = rowData.map((row, rIdx) => `
+      <tr>
+        <td class="row-num">${rIdx + 1}</td>
+        ${row.map(cell => {
+          const display = (typeof cell === 'object' && cell.display !== undefined) ? cell.display : String(cell || '');
+          const isErr = typeof cell === 'object' && cell.kind === 'error';
+          return `<td style="${isErr ? 'color:#ef4444;font-weight:bold;' : ''}">${escapeHtml(display)}</td>`;
+        }).join('')}
+      </tr>
+    `).join('');
+  }
+}
+
+function renderRawMatrixGrid(matrix) {
+  if (!matrix || matrix.length === 0) return;
+  const maxCols = Math.max(...matrix.map(r => r.length));
+  const colNames = Array.from({ length: maxCols }, (_, i) => getColLetter(i + 1));
+  const rowData = matrix.map(row => {
+    return Array.from({ length: maxCols }, (_, i) => ({ display: String(row[i] || ''), kind: 'value' }));
+  });
+  renderSpreadsheetGrid(colNames, rowData, matrix.length, maxCols);
+}
+
+function getColLetter(n) {
+  let s = '';
+  while (n > 0) {
+    let m = (n - 1) % 26;
+    s = String.fromCharCode(65 + m) + s;
+    n = Math.floor((n - m) / 26);
+  }
+  return s;
+}
+
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+async function loadViewWorksheet(sheetName) {
+  if (!sheetName) {
+    const dropdown = document.getElementById('excel-view-sheet-dropdown');
+    sheetName = dropdown ? dropdown.value : '';
+  }
+  if (!sheetName) return;
+
+  try {
+    const data = await apiFetch('/api/select-sheet', {
+      method: 'POST',
+      body: { worksheet: sheetName }
+    });
+    if (data.selection && data.selection.raw_matrix) {
+      parseAndLoadRows(data.selection.raw_matrix, sheetName);
+      updateSyncHeaderTag(true, data.selection.filename, sheetName);
+      renderExcelSyncView();
+    }
+  } catch (err) {
+    alert('Error loading worksheet: ' + err.message);
+  }
+}
+
+async function triggerManualRefresh() {
+  try {
+    const data = await apiFetch('/api/refresh', {
+      method: 'POST',
+      body: { force: true }
+    });
+    if (data.selection && data.selection.raw_matrix) {
+      parseAndLoadRows(data.selection.raw_matrix, data.selection.worksheet);
+      updateSyncHeaderTag(true, data.selection.filename, data.selection.worksheet);
+      renderExcelSyncView();
+    }
+  } catch (err) {
+    alert('Refresh error: ' + err.message);
+  }
+}
+
+async function disconnectLinkedFile() {
+  try {
+    await apiFetch('/api/change-file', { method: 'POST' });
+    if (syncTimer) clearInterval(syncTimer);
+    updateSyncHeaderTag(false);
+    renderExcelSyncView();
+  } catch (err) {
+    console.warn('Disconnect error:', err);
+  }
+}
+
+function toggleAutoRefreshSetting(enabled) {
+  autoRefreshEnabled = enabled;
+  if (enabled) {
+    startSyncPolling();
+  } else {
+    if (syncTimer) clearInterval(syncTimer);
   }
 }
 
