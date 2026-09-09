@@ -90,7 +90,11 @@ def create_app(test_config=None):
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Content-Security-Policy"] = (
             "default-src 'self' 'unsafe-inline' 'unsafe-eval' https: data:; "
-            "img-src 'self' data: https:; connect-src 'self' https:; frame-ancestors 'none'"
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; "
+            "style-src 'self' 'unsafe-inline' https:; "
+            "img-src 'self' data: https:; "
+            "font-src 'self' data: https:; "
+            "connect-src 'self' https:; frame-ancestors 'none'"
         )
         return response
 
