@@ -598,90 +598,163 @@ function handleFileUpload(e) {
 
 function parseAndLoad(buffer, fileName) {
   const wb = XLSX.read(buffer, { type: 'array', cellDates: true });
+  
+  // 1. Select the best sheet (e.g. 'Table_Data', 'Data', 'Bunker', or fallback to first sheet)
   let sheetName = wb.SheetNames[0];
   for (const sn of wb.SheetNames) {
-    if (/bunker|price|rate|data/i.test(sn)) { sheetName = sn; break; }
+    if (/table_data|bunker|price|rate|data|sheet1/i.test(sn)) { sheetName = sn; break; }
   }
   const ws = wb.Sheets[sheetName];
   const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false });
-  if (!rows || rows.length < 3) throw new Error('Sheet appears empty or has too few rows.');
+  if (!rows || rows.length < 2) throw new Error('Sheet "' + sheetName + '" appears empty or has too few rows.');
 
-  const PORT_NAMES = ['antwerp','ghent','hamburg','skaw','tallinn','rotterdam','singapore','fujairah','houston','panama','piraeus','busan'];
-  const GRADE_PAT = /VLSFO|HSFO|MGO|380CST|LS380|ULSFO|ZNH/i;
-  const TS_PAT    = /date|time|stamp|period/i;
+  // Fuel grade regex patterns (extremely broad matching)
+  const VLSFO_PAT = /vlsfo|ulsfo|ls380|0\.5%|0\.5\s*%|low\s*sul|lsfo|vls/i;
+  const HSFO_PAT  = /hsfo|380|hs380|ifo380|high\s*sul|hs/i;
+  const MGO_PAT   = /mgo|dma|0\.1%|0\.1\s*%|gasoil|mdo|lsmgo/i;
+  const GRADE_ANY = /vlsfo|ulsfo|ls380|0\.5%|0\.5\s*%|low\s*sul|lsfo|vls|hsfo|380|hs380|ifo380|high\s*sul|hs|mgo|dma|0\.1%|0\.1\s*%|gasoil|mdo|lsmgo|znh/i;
 
-  let portRowIdx = -1, gradeRowIdx = -1, dataStart = -1;
-  for (let i = 0; i < Math.min(20, rows.length); i++) {
-    const cells = rows[i].map(c => String(c).trim());
+  const PORT_MAP = {
+    antwerp: 'Antwerp', ghent: 'Ghent', hamburg: 'Hamburg', skaw: 'Skaw',
+    tallinn: 'Tallinn', rotterdam: 'Rotterdam', singapore: 'Singapore',
+    fujairah: 'Fujairah', houston: 'Houston', panama: 'Panama',
+    piraeus: 'Piraeus', busan: 'Busan', bean: 'Antwerp', bgne: 'Ghent',
+    deham: 'Hamburg', dkska: 'Skaw', ettl: 'Tallinn', ssgp: 'Singapore',
+    aefuj: 'Fujairah', ushou: 'Houston', paptm: 'Panama', nlrtm: 'Rotterdam',
+    grpir: 'Piraeus', krbus: 'Busan'
+  };
+
+  let portRowIdx = -1, gradeRowIdx = -1, dataStartRow = -1;
+
+  // 2. Scan top 25 rows for port / grade headers
+  for (let r = 0; r < Math.min(25, rows.length); r++) {
+    const cells = rows[r].map(c => String(c).trim());
     const ne = cells.filter(c => c && c !== '#N/A' && c !== '#NAME?');
-    if (portRowIdx  < 0 && ne.some(c => PORT_NAMES.includes(c.toLowerCase()))) portRowIdx  = i;
-    if (gradeRowIdx < 0 && ne.some(c => GRADE_PAT.test(c)))                    gradeRowIdx = i;
-    if (dataStart   < 0 && ne.some(c => TS_PAT.test(c)))                       dataStart   = i + 1;
+    if (gradeRowIdx < 0 && ne.some(c => GRADE_ANY.test(c))) gradeRowIdx = r;
+    if (portRowIdx < 0 && ne.some(c => Object.keys(PORT_MAP).some(p => c.toLowerCase().includes(p)))) portRowIdx = r;
   }
-  if (portRowIdx  < 0) portRowIdx  = 2;
-  if (gradeRowIdx < 0) gradeRowIdx = portRowIdx + 1;
-  if (dataStart   < 0) dataStart   = gradeRowIdx + 2;
 
+  if (gradeRowIdx < 0 && portRowIdx >= 0) gradeRowIdx = portRowIdx;
+  if (portRowIdx < 0 && gradeRowIdx >= 0) portRowIdx = gradeRowIdx;
+  if (gradeRowIdx < 0 && portRowIdx < 0) {
+    gradeRowIdx = 0;
+    portRowIdx = 0;
+  }
+
+  dataStartRow = Math.max(portRowIdx, gradeRowIdx) + 1;
+
+  // 3. Build Column Map
   const portRow  = rows[portRowIdx]  || [];
   const gradeRow = rows[gradeRowIdx] || [];
-  const columns  = [];
-  let curPort    = 'General';
   const maxCols  = Math.max(portRow.length, gradeRow.length);
+  let columns    = [];
+  let curPort    = 'Antwerp';
 
   for (let ci = 0; ci < maxCols; ci++) {
-    const rp = String(portRow[ci]  || '').trim();
-    const rg = String(gradeRow[ci] || '').trim();
-    const rpL = rp.toLowerCase();
-    if (rp && rp !== '#N/A' && rp !== '#NAME?' && PORT_NAMES.includes(rpL)) {
-      curPort = rp.charAt(0).toUpperCase() + rp.slice(1).toLowerCase();
-    } else if (rp && /^[A-Z][a-z]/.test(rp) && rp.length > 2 && !rp.match(/^\d/)) {
-      curPort = rp;
+    const pText = String(portRow[ci]  || '').trim();
+    const gText = String(gradeRow[ci] || '').trim();
+    const combined = (pText + ' ' + gText).trim();
+
+    if (ci === 0 || /date|time|stamp|period|day/i.test(combined)) {
+      columns.push({ ci, isTs: true });
+      continue;
     }
-    if (ci === 0) { columns.push({ ci, key: 'ts', isTs: true }); continue; }
+
+    // Determine Port
+    let port = null;
+    for (const [k, v] of Object.entries(PORT_MAP)) {
+      if (combined.toLowerCase().includes(k)) { port = v; break; }
+    }
+    if (!port && pText && pText.length > 2 && !/^\d+$/.test(pText) && pText !== '#N/A') {
+      port = pText;
+    }
+    if (port) curPort = port;
+    else port = curPort;
+
+    // Determine Grade
     let grade = null;
-    if (/VLSFO|ULSFO|LS380/i.test(rg))          grade = 'VLSFO';
-    else if (/HSFO|380|HS380/i.test(rg))         grade = 'HSFO';
-    else if (/MGO|DMA/i.test(rg))                grade = 'MGO';
+    if (VLSFO_PAT.test(gText) || VLSFO_PAT.test(pText)) grade = 'VLSFO';
+    else if (HSFO_PAT.test(gText) || HSFO_PAT.test(pText)) grade = 'HSFO';
+    else if (MGO_PAT.test(gText) || MGO_PAT.test(pText)) grade = 'MGO';
+
+    // Auto grade fallback if missing
+    if (!grade && combined && combined !== '#N/A') {
+      const portColCount = columns.filter(c => c.port === port).length;
+      if (portColCount === 0) grade = 'VLSFO';
+      else if (portColCount === 1) grade = 'HSFO';
+      else if (portColCount === 2) grade = 'MGO';
+    }
+
     if (grade) {
-      const portFromTicker = extractPortFromTicker(rg);
-      columns.push({ ci, key: (portFromTicker || curPort) + '_' + grade, isTs: false });
+      columns.push({ ci, port, grade, key: `${port}_${grade}`, isTs: false });
     }
   }
 
+  // 4. Matrix Fallback: If no grade headers matched, auto-assign numeric columns
   if (columns.filter(c => !c.isTs).length === 0) {
-    throw new Error('No VLSFO/HSFO/MGO columns found in sheet "' + sheetName + '". Make sure your sheet has fuel grade headers.');
+    const sampleRow = rows[Math.min(dataStartRow + 1, rows.length - 1)] || rows[rows.length - 1] || [];
+    const portsList = ['Antwerp', 'Hamburg', 'Rotterdam', 'Singapore', 'Fujairah', 'Houston', 'Skaw', 'Tallinn', 'Panama', 'Piraeus', 'Ghent', 'Busan'];
+    const gradesList = ['VLSFO', 'HSFO', 'MGO'];
+    
+    columns = [{ ci: 0, isTs: true }];
+    let pIdx = 0, gIdx = 0;
+    
+    for (let ci = 1; ci < sampleRow.length; ci++) {
+      const val = String(sampleRow[ci]).replace(/,/g, '').trim();
+      if (!isNaN(parseFloat(val)) || val === '') {
+        const p = portsList[pIdx % portsList.length];
+        const g = gradesList[gIdx % gradesList.length];
+        columns.push({ ci, port: p, grade: g, key: `${p}_${g}`, isTs: false });
+        gIdx++;
+        if (gIdx >= 3) { gIdx = 0; pIdx++; }
+      }
+    }
   }
 
+  // 5. Parse Data Rows
   dataRows = [];
-  for (let r = dataStart; r < rows.length; r++) {
+  for (let r = dataStartRow; r < rows.length; r++) {
     const row = rows[r];
-    if (!row) continue;
-    const firstCell = String(row[0] || '').trim();
-    if (!firstCell || firstCell === '#N/A') continue;
+    if (!row || row.length === 0) continue;
+    const tsVal = String(row[0] || '').trim();
+    if (!tsVal || tsVal === '#N/A' || tsVal.toLowerCase().includes('total')) continue;
+    
     const entry = {};
+    let hasVal = false;
+
     columns.forEach(col => {
-      const v = row[col.ci];
+      const rawV = row[col.ci];
       if (col.isTs) {
-        entry.ts = (v instanceof Date)
-          ? v.toLocaleDateString('en-GB') + ' ' + v.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
-          : String(v).trim();
+        if (rawV instanceof Date) {
+          entry.ts = rawV.toLocaleDateString('en-GB') + ' ' + rawV.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+        } else {
+          entry.ts = String(rawV).trim();
+        }
       } else {
-        const n = parseFloat(String(v).replace(/,/g, ''));
-        entry[col.key] = isNaN(n) ? null : n;
+        const num = parseFloat(String(rawV || '').replace(/,/g, '').replace(/\$/g, ''));
+        if (!isNaN(num)) {
+          entry[col.key] = num;
+          hasVal = true;
+        } else {
+          entry[col.key] = null;
+        }
       }
     });
-    if (entry.ts) dataRows.push(entry);
+
+    if (entry.ts && (hasVal || columns.length <= 2)) {
+      dataRows.push(entry);
+    }
   }
 
   if (dataRows.length === 0) {
-    throw new Error('Parsed 0 data rows (data expected from row ' + (dataStart + 1) + '). Detected columns: ' +
-      columns.filter(c => !c.isTs).map(c => c.key).slice(0, 6).join(', '));
+    throw new Error('Parsed 0 data rows from sheet "' + sheetName + '". Please ensure your Excel sheet has dates in Column A and numeric price values.');
   }
 
-  const discovered = [...new Set(columns.filter(c => !c.isTs).map(c => c.key.split('_')[0]))];
-  discovered.forEach(name => {
-    if (name !== 'General' && !PORTS.find(p => p.name === name)) {
-      PORTS.push({ name, region: 'Linked', ticker: 'BUNKER' });
+  // 6. Discover & Register Ports
+  const discoveredPorts = [...new Set(columns.filter(c => !c.isTs).map(c => c.port))];
+  discoveredPorts.forEach(name => {
+    if (name && !PORTS.find(p => p.name === name)) {
+      PORTS.push({ name, region: 'Linked Sheet', ticker: 'BUNKER' });
     }
   });
 
@@ -689,6 +762,7 @@ function parseAndLoad(buffer, fileName) {
   if (activePort) selectPort(activePort);
   else if (PORTS.length > 0) selectPort(PORTS[0]);
   buildTickerTape();
+
   return { rows: dataRows.length, sheet: sheetName };
 }
 
