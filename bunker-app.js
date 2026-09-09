@@ -477,9 +477,145 @@ function renderNews() {
   `).join('');
 }
 
+// ─── Backend Live Sync & Folder Browser ───────────────────────────────────────
+let csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
+let selectedFilePath = '';
+let syncTimer = null;
+
+async function apiFetch(url, options = {}) {
+  options.headers = options.headers || {};
+  if (csrfToken) {
+    options.headers['X-CSRF-Token'] = csrfToken;
+  }
+  if (options.body && typeof options.body === 'object' && !(options.body instanceof FormData)) {
+    options.headers['Content-Type'] = 'application/json';
+    options.body = JSON.stringify(options.body);
+  }
+  try {
+    const res = await fetch(url, options);
+    const data = await res.json();
+    if (data.csrf_token) csrfToken = data.csrf_token;
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    return data;
+  } catch(e) {
+    throw e;
+  }
+}
+
+async function loadFolderList(path = '') {
+  const container = document.getElementById('folder-items-list');
+  const pathDisplay = document.getElementById('folder-path-display');
+  if (!container) return;
+
+  container.innerHTML = `<div style="font-size:0.74rem;color:var(--color-text-muted);padding:4px;">Loading directory items...</div>`;
+  if (pathDisplay) pathDisplay.textContent = path ? `/${path}` : '/ (Root)';
+
+  try {
+    const data = await apiFetch(`/api/folder?path=${encodeURIComponent(path)}`);
+    if (!data.items || data.items.length === 0) {
+      container.innerHTML = `<div style="font-size:0.74rem;color:var(--color-text-muted);padding:4px;">(No .xlsx files or subfolders in this directory)</div>`;
+      return;
+    }
+
+    container.innerHTML = data.items.map(item => {
+      if (item.folder) {
+        return `<div onclick="loadFolderList('${item.path}')" style="display:flex;align-items:center;gap:6px;padding:5px 8px;border-radius:4px;cursor:pointer;background:rgba(255,255,255,0.03);color:#e2e8f0;font-size:0.75rem;" onmouseover="this.style.background='rgba(255,255,255,0.08)'" onmouseout="this.style.background='rgba(255,255,255,0.03)'">
+          <span>📁</span> <strong style="color:var(--color-primary);">${item.name}</strong>
+        </div>`;
+      } else {
+        return `<div onclick="selectBackendFile('${item.path}', '${item.name}')" style="display:flex;align-items:center;justify-content:space-between;padding:5px 8px;border-radius:4px;cursor:pointer;background:rgba(0,255,135,0.05);border:1px solid rgba(0,255,135,0.15);color:#fff;font-size:0.75rem;" onmouseover="this.style.background='rgba(0,255,135,0.12)'" onmouseout="this.style.background='rgba(0,255,135,0.05)'">
+          <span style="display:flex;align-items:center;gap:6px;">📊 <strong>${item.name}</strong></span>
+          <span style="font-size:0.68rem;color:var(--color-success);font-weight:600;">Select & Sync</span>
+        </div>`;
+      }
+    }).join('');
+
+  } catch (err) {
+    container.innerHTML = `<div style="font-size:0.72rem;color:var(--color-text-muted);padding:4px;">Sync backend: Standalone client mode. Use drag & drop below.</div>`;
+  }
+}
+
+async function selectBackendFile(path, name) {
+  selectedFilePath = path;
+  const statusEl = document.getElementById('sync-active-badge');
+  const box = document.getElementById('sheet-select-box');
+  const select = document.getElementById('worksheet-dropdown');
+  if (statusEl) statusEl.textContent = `Reading "${name}"...`;
+
+  try {
+    const data = await apiFetch('/api/select-file', {
+      method: 'POST',
+      body: { path }
+    });
+
+    const sheets = data.selection?.sheet_names || [];
+    if (sheets.length === 0) throw new Error('No worksheets found in workbook.');
+
+    select.innerHTML = sheets.map(s => `<option value="${s}">${s}</option>`).join('');
+    if (box) box.style.display = 'block';
+    if (statusEl) statusEl.textContent = `Selected "${name}"`;
+
+  } catch (err) {
+    alert('Error selecting workbook: ' + err.message);
+  }
+}
+
+async function confirmSheetSelection() {
+  const select = document.getElementById('worksheet-dropdown');
+  const sheet = select ? select.value : '';
+  if (!sheet || !selectedFilePath) return;
+
+  try {
+    const data = await apiFetch('/api/select-sheet', {
+      method: 'POST',
+      body: { worksheet: sheet }
+    });
+
+    if (data.selection && data.selection.raw_matrix) {
+      parseAndLoadRows(data.selection.raw_matrix, sheet);
+      updateSyncHeaderTag(true, data.selection.filename, sheet);
+      startSyncPolling();
+      closeLinkModal();
+    }
+  } catch (err) {
+    alert('Error syncing worksheet: ' + err.message);
+  }
+}
+
+async function pollRefreshSync() {
+  try {
+    const data = await apiFetch('/api/refresh', {
+      method: 'POST',
+      body: { force: false }
+    });
+
+    if (data.selection && data.selection.changed_detected && data.selection.raw_matrix) {
+      console.log('⚡ Live change detected in synced Excel file! Updating terminal UI...');
+      parseAndLoadRows(data.selection.raw_matrix, data.selection.worksheet);
+      updateSyncHeaderTag(true, data.selection.filename, data.selection.worksheet);
+    }
+  } catch (err) {
+    // Silent catch on background sync polling
+  }
+}
+
+function startSyncPolling() {
+  if (syncTimer) clearInterval(syncTimer);
+  syncTimer = setInterval(pollRefreshSync, 5000);
+}
+
+function updateSyncHeaderTag(active, filename, sheet) {
+  const tag = document.getElementById('sync-status-tag');
+  if (tag) {
+    tag.style.display = active ? 'inline-block' : 'none';
+    tag.textContent = `🟢 Sync: ${filename} [${sheet}]`;
+  }
+}
+
 // ─── OneDrive Link Modal ──────────────────────────────────────────────────────
 function openLinkModal() {
   document.getElementById('link-modal').style.display = 'flex';
+  loadFolderList();
 }
 function closeLinkModal() {
   document.getElementById('link-modal').style.display = 'none';
@@ -487,25 +623,16 @@ function closeLinkModal() {
 
 // Convert any OneDrive / SharePoint share URL into a direct download URL
 function buildOneDriveDownloadUrl(rawUrl) {
-  // Already a direct download — return as-is
   if (rawUrl.includes('/download?') || rawUrl.match(/[?&]download=1/)) return rawUrl;
-
-  // 1drv.ms short links → append ?download=1
   if (rawUrl.includes('1drv.ms') || rawUrl.includes('onedrive.live.com')) {
     return rawUrl + (rawUrl.includes('?') ? '&download=1' : '?download=1');
   }
-
-  // SharePoint / O365 sharing URL
-  // e.g. https://company.sharepoint.com/sites/.../Shared%20Documents/.../file.xlsx?web=1
-  // → replace ?web=1 with ?download=1
   if (rawUrl.includes('sharepoint.com') || rawUrl.includes('office365.com') || rawUrl.includes('office.com')) {
     return rawUrl
       .replace(/[?&]web=\d/g, '')
       .replace(/[?&]e=[^&]+/g, '')
       + (rawUrl.includes('?') ? '&download=1' : '?download=1');
   }
-
-  // Generic fallback
   return rawUrl + (rawUrl.includes('?') ? '&download=1' : '?download=1');
 }
 
@@ -523,13 +650,12 @@ async function connectOneDriveURL() {
 
   const dlUrl = buildOneDriveDownloadUrl(rawUrl);
 
-  // CORS proxy chain — tries each in order until one works
   const PROXIES = [
-    u => u,                                                            // 1. Direct (works if CORS is enabled)
-    u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,  // 2. allorigins
-    u => `https://corsproxy.io/?${encodeURIComponent(u)}`,               // 3. corsproxy.io
-    u => `https://cors-anywhere.herokuapp.com/${u}`,                     // 4. cors-anywhere
-    u => `https://proxy.cors.sh/${u}`                                     // 5. cors.sh
+    u => u,
+    u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+    u => `https://corsproxy.io/?${encodeURIComponent(u)}`,
+    u => `https://cors-anywhere.herokuapp.com/${u}`,
+    u => `https://proxy.cors.sh/${u}`
   ];
 
   let lastError = '';
@@ -537,10 +663,7 @@ async function connectOneDriveURL() {
     const proxyUrl = PROXIES[i](dlUrl);
     if (progEl) progEl.textContent = `Trying method ${i + 1} of ${PROXIES.length}...`;
     try {
-      const resp = await fetch(proxyUrl, {
-        headers: i > 0 ? {} : {},   // no special headers needed
-        signal: AbortSignal.timeout(12000)
-      });
+      const resp = await fetch(proxyUrl, { signal: AbortSignal.timeout(12000) });
       if (!resp.ok) { lastError = `HTTP ${resp.status}`; continue; }
       const buf = await resp.arrayBuffer();
       if (buf.byteLength < 100) { lastError = 'Empty response'; continue; }
@@ -556,15 +679,13 @@ async function connectOneDriveURL() {
     }
   }
 
-  // All proxies failed
   if (progEl) progEl.textContent = '';
   btn.disabled = false;
   btn.textContent = 'Connect';
   errEl.innerHTML = `
     <strong>⚠️ Could not fetch the file automatically.</strong><br>
     <span style="font-weight:400;">Browser security (CORS) blocks direct access to OneDrive URLs from web apps.</span><br><br>
-    <strong>✅ Easy fix — use the local file picker below:</strong><br>
-    Since OneDrive syncs to your PC, find the file in your local OneDrive folder and select it directly.
+    <strong>✅ Easy fix — select the file from the OneDrive folder browser above!</strong>
     <br><small style="opacity:0.7;margin-top:4px;display:block;">Last error: ${lastError}</small>
   `;
   errEl.style.display = 'block';
@@ -598,11 +719,13 @@ function handleFileUpload(e) {
 
 function parseAndLoad(buffer, fileName) {
   const wb = XLSX.read(buffer, { type: 'array', cellDates: true });
-  
-  // Pick active sheet (e.g. 'Sheet1', 'Table_Data', 'Bunker', or first sheet)
   let sheetName = wb.SheetNames[0];
   const ws = wb.Sheets[sheetName];
   const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false });
+  return parseAndLoadRows(rows, sheetName);
+}
+
+function parseAndLoadRows(rows, sheetName) {
   if (!rows || rows.length < 2) throw new Error('Sheet "' + sheetName + '" is empty or invalid.');
 
   // Find header rows
