@@ -599,138 +599,113 @@ function handleFileUpload(e) {
 function parseAndLoad(buffer, fileName) {
   const wb = XLSX.read(buffer, { type: 'array', cellDates: true });
   
-  // 1. Select the best sheet (e.g. 'Table_Data', 'Data', 'Bunker', or fallback to first sheet)
+  // Pick active sheet (e.g. 'Sheet1', 'Table_Data', 'Bunker', or first sheet)
   let sheetName = wb.SheetNames[0];
-  for (const sn of wb.SheetNames) {
-    if (/table_data|bunker|price|rate|data|sheet1/i.test(sn)) { sheetName = sn; break; }
-  }
   const ws = wb.Sheets[sheetName];
   const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false });
-  if (!rows || rows.length < 2) throw new Error('Sheet "' + sheetName + '" appears empty or has too few rows.');
+  if (!rows || rows.length < 2) throw new Error('Sheet "' + sheetName + '" is empty or invalid.');
 
-  // Fuel grade regex patterns (extremely broad matching)
-  const VLSFO_PAT = /vlsfo|ulsfo|ls380|0\.5%|0\.5\s*%|low\s*sul|lsfo|vls/i;
-  const HSFO_PAT  = /hsfo|380|hs380|ifo380|high\s*sul|hs/i;
-  const MGO_PAT   = /mgo|dma|0\.1%|0\.1\s*%|gasoil|mdo|lsmgo/i;
-  const GRADE_ANY = /vlsfo|ulsfo|ls380|0\.5%|0\.5\s*%|low\s*sul|lsfo|vls|hsfo|380|hs380|ifo380|high\s*sul|hs|mgo|dma|0\.1%|0\.1\s*%|gasoil|mdo|lsmgo|znh/i;
+  // Find header rows
+  let portRowIdx = -1, gradeRowIdx = -1, tickerRowIdx = -1, dataStartRow = -1;
 
-  const PORT_MAP = {
-    antwerp: 'Antwerp', ghent: 'Ghent', hamburg: 'Hamburg', skaw: 'Skaw',
-    tallinn: 'Tallinn', rotterdam: 'Rotterdam', singapore: 'Singapore',
-    fujairah: 'Fujairah', houston: 'Houston', panama: 'Panama',
-    piraeus: 'Piraeus', busan: 'Busan', bean: 'Antwerp', bgne: 'Ghent',
-    deham: 'Hamburg', dkska: 'Skaw', ettl: 'Tallinn', ssgp: 'Singapore',
-    aefuj: 'Fujairah', ushou: 'Houston', paptm: 'Panama', nlrtm: 'Rotterdam',
-    grpir: 'Piraeus', krbus: 'Busan'
-  };
+  for (let r = 0; r < Math.min(15, rows.length); r++) {
+    const rowCells = rows[r].map(c => String(c).trim());
+    const rowStr = rowCells.join(' ').toUpperCase();
 
-  let portRowIdx = -1, gradeRowIdx = -1, dataStartRow = -1;
-
-  // 2. Scan top 25 rows for port / grade headers
-  for (let r = 0; r < Math.min(25, rows.length); r++) {
-    const cells = rows[r].map(c => String(c).trim());
-    const ne = cells.filter(c => c && c !== '#N/A' && c !== '#NAME?');
-    if (gradeRowIdx < 0 && ne.some(c => GRADE_ANY.test(c))) gradeRowIdx = r;
-    if (portRowIdx < 0 && ne.some(c => Object.keys(PORT_MAP).some(p => c.toLowerCase().includes(p)))) portRowIdx = r;
-  }
-
-  if (gradeRowIdx < 0 && portRowIdx >= 0) gradeRowIdx = portRowIdx;
-  if (portRowIdx < 0 && gradeRowIdx >= 0) portRowIdx = gradeRowIdx;
-  if (gradeRowIdx < 0 && portRowIdx < 0) {
-    gradeRowIdx = 0;
-    portRowIdx = 0;
-  }
-
-  dataStartRow = Math.max(portRowIdx, gradeRowIdx) + 1;
-
-  // 3. Build Column Map
-  const portRow  = rows[portRowIdx]  || [];
-  const gradeRow = rows[gradeRowIdx] || [];
-  const maxCols  = Math.max(portRow.length, gradeRow.length);
-  let columns    = [];
-  let curPort    = 'Antwerp';
-
-  for (let ci = 0; ci < maxCols; ci++) {
-    const pText = String(portRow[ci]  || '').trim();
-    const gText = String(gradeRow[ci] || '').trim();
-    const combined = (pText + ' ' + gText).trim();
-
-    if (ci === 0 || /date|time|stamp|period|day/i.test(combined)) {
-      columns.push({ ci, isTs: true });
-      continue;
+    if (portRowIdx < 0 && (rowStr.includes('ANTWERP') || rowStr.includes('GHENT') || rowStr.includes('HAMBURG') || rowStr.includes('SKAW') || rowStr.includes('ROTTERDAM') || rowStr.includes('SINGAPORE'))) {
+      portRowIdx = r;
     }
-
-    // Determine Port
-    let port = null;
-    for (const [k, v] of Object.entries(PORT_MAP)) {
-      if (combined.toLowerCase().includes(k)) { port = v; break; }
+    if (gradeRowIdx < 0 && (rowStr.includes('VLSFO') || rowStr.includes('HSFO') || rowStr.includes('MGO') || rowStr.includes('380'))) {
+      gradeRowIdx = r;
     }
-    if (!port && pText && pText.length > 2 && !/^\d+$/.test(pText) && pText !== '#N/A') {
-      port = pText;
+    if (tickerRowIdx < 0 && rowStr.includes('ZNH')) {
+      tickerRowIdx = r;
     }
-    if (port) curPort = port;
-    else port = curPort;
-
-    // Determine Grade
-    let grade = null;
-    if (VLSFO_PAT.test(gText) || VLSFO_PAT.test(pText)) grade = 'VLSFO';
-    else if (HSFO_PAT.test(gText) || HSFO_PAT.test(pText)) grade = 'HSFO';
-    else if (MGO_PAT.test(gText) || MGO_PAT.test(pText)) grade = 'MGO';
-
-    // Auto grade fallback if missing
-    if (!grade && combined && combined !== '#N/A') {
-      const portColCount = columns.filter(c => c.port === port).length;
-      if (portColCount === 0) grade = 'VLSFO';
-      else if (portColCount === 1) grade = 'HSFO';
-      else if (portColCount === 2) grade = 'MGO';
-    }
-
-    if (grade) {
-      columns.push({ ci, port, grade, key: `${port}_${grade}`, isTs: false });
-    }
-  }
-
-  // 4. Matrix Fallback: If no grade headers matched, auto-assign numeric columns
-  if (columns.filter(c => !c.isTs).length === 0) {
-    const sampleRow = rows[Math.min(dataStartRow + 1, rows.length - 1)] || rows[rows.length - 1] || [];
-    const portsList = ['Antwerp', 'Hamburg', 'Rotterdam', 'Singapore', 'Fujairah', 'Houston', 'Skaw', 'Tallinn', 'Panama', 'Piraeus', 'Ghent', 'Busan'];
-    const gradesList = ['VLSFO', 'HSFO', 'MGO'];
-    
-    columns = [{ ci: 0, isTs: true }];
-    let pIdx = 0, gIdx = 0;
-    
-    for (let ci = 1; ci < sampleRow.length; ci++) {
-      const val = String(sampleRow[ci]).replace(/,/g, '').trim();
-      if (!isNaN(parseFloat(val)) || val === '') {
-        const p = portsList[pIdx % portsList.length];
-        const g = gradesList[gIdx % gradesList.length];
-        columns.push({ ci, port: p, grade: g, key: `${p}_${g}`, isTs: false });
-        gIdx++;
-        if (gIdx >= 3) { gIdx = 0; pIdx++; }
+    if (dataStartRow < 0) {
+      const firstCell = String(rows[r][0] || '').trim();
+      if (firstCell.toLowerCase() === 'timestamp' || firstCell.match(/^20\d\d/)) {
+        dataStartRow = (firstCell.toLowerCase() === 'timestamp') ? r + 1 : r;
       }
     }
   }
 
-  // 5. Parse Data Rows
+  // Fallback row indices if not found
+  if (portRowIdx < 0) portRowIdx = 1;
+  if (gradeRowIdx < 0) gradeRowIdx = portRowIdx + 1;
+  if (dataStartRow < 0) dataStartRow = Math.max(portRowIdx, gradeRowIdx, tickerRowIdx) + 1;
+
+  const portRow = rows[portRowIdx] || [];
+  const gradeRow = rows[gradeRowIdx] || [];
+  const tickerRow = tickerRowIdx >= 0 ? rows[tickerRowIdx] : [];
+
+  const maxCols = Math.max(portRow.length, gradeRow.length, tickerRow.length);
+  const columns = [{ ci: 0, isTs: true }];
+  let curPort = 'Antwerp';
+
+  for (let ci = 1; ci < maxCols; ci++) {
+    const pVal = String(portRow[ci] || '').trim();
+    const gVal = String(gradeRow[ci] || '').trim();
+    const tVal = String(tickerRow[ci] || '').trim();
+
+    // 1. Determine Port
+    if (pVal && pVal !== '#N/A' && pVal !== '#NAME?' && !/^\d+$/.test(pVal) && pVal.length > 1) {
+      curPort = pVal.charAt(0).toUpperCase() + pVal.slice(1).toLowerCase();
+    } else {
+      const tickerPort = extractPortFromTicker(tVal);
+      if (tickerPort) curPort = tickerPort;
+    }
+
+    // 2. Determine Fuel Grade
+    let grade = null;
+    if (/MGO|DMA|0\.1%|GASOIL/i.test(gVal) || /MGO/i.test(tVal)) grade = 'MGO';
+    else if (/VLSFO|ULSFO|LS380|0\.5%/i.test(gVal) || /VLSFO/i.test(tVal)) grade = 'VLSFO';
+    else if (/HSFO|380|HS380|IFO380/i.test(gVal) || /HSFO/i.test(tVal)) grade = 'HSFO';
+
+    if (grade) {
+      columns.push({ ci, port: curPort, grade, key: curPort + '_' + grade, isTs: false });
+    }
+  }
+
+  // Disambiguate duplicate keys per port (e.g. HSFO -> VLSFO -> MGO sequence)
+  const seenKeys = {};
+  columns.forEach(col => {
+    if (col.isTs) return;
+    let comboKey = col.port + '_' + col.grade;
+    if (seenKeys[comboKey]) {
+      if (col.grade === 'VLSFO') col.grade = 'MGO';
+      else if (col.grade === 'HSFO') col.grade = 'VLSFO';
+      col.key = col.port + '_' + col.grade;
+    }
+    seenKeys[col.key] = true;
+  });
+
+  if (columns.filter(c => !c.isTs).length === 0) {
+    throw new Error('No valid bunker price columns found in sheet "' + sheetName + '".');
+  }
+
+  // Parse Data Rows
   dataRows = [];
   for (let r = dataStartRow; r < rows.length; r++) {
     const row = rows[r];
-    if (!row || row.length === 0) continue;
-    const tsVal = String(row[0] || '').trim();
-    if (!tsVal || tsVal === '#N/A' || tsVal.toLowerCase().includes('total')) continue;
+    if (!row || !row[0]) continue;
     
-    const entry = {};
+    let rawTs = row[0];
+    let formattedTs = '';
+    
+    if (rawTs instanceof Date) {
+      formattedTs = rawTs.toLocaleDateString('en-GB') + ' ' + rawTs.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+    } else {
+      formattedTs = String(rawTs).trim();
+    }
+
+    if (!formattedTs || formattedTs === '#N/A' || formattedTs.toLowerCase() === 'timestamp') continue;
+
+    const entry = { ts: formattedTs };
     let hasVal = false;
 
     columns.forEach(col => {
-      const rawV = row[col.ci];
-      if (col.isTs) {
-        if (rawV instanceof Date) {
-          entry.ts = rawV.toLocaleDateString('en-GB') + ' ' + rawV.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-        } else {
-          entry.ts = String(rawV).trim();
-        }
-      } else {
+      if (!col.isTs) {
+        const rawV = row[col.ci];
         const num = parseFloat(String(rawV || '').replace(/,/g, '').replace(/\$/g, ''));
         if (!isNaN(num)) {
           entry[col.key] = num;
@@ -741,16 +716,16 @@ function parseAndLoad(buffer, fileName) {
       }
     });
 
-    if (entry.ts && (hasVal || columns.length <= 2)) {
+    if (hasVal) {
       dataRows.push(entry);
     }
   }
 
   if (dataRows.length === 0) {
-    throw new Error('Parsed 0 data rows from sheet "' + sheetName + '". Please ensure your Excel sheet has dates in Column A and numeric price values.');
+    throw new Error('Parsed 0 data rows from sheet "' + sheetName + '".');
   }
 
-  // 6. Discover & Register Ports
+  // Update discovered ports
   const discoveredPorts = [...new Set(columns.filter(c => !c.isTs).map(c => c.port))];
   discoveredPorts.forEach(name => {
     if (name && !PORTS.find(p => p.name === name)) {
