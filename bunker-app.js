@@ -728,20 +728,19 @@ function parseAndLoad(buffer, fileName) {
 function parseAndLoadRows(rows, sheetName) {
   if (!rows || rows.length < 2) throw new Error('Sheet "' + sheetName + '" is empty or invalid.');
 
-  // Find header rows
+  // Find header rows with strict cell string checks
   let portRowIdx = -1, gradeRowIdx = -1, tickerRowIdx = -1, dataStartRow = -1;
 
   for (let r = 0; r < Math.min(15, rows.length); r++) {
-    const rowCells = rows[r].map(c => String(c).trim());
-    const rowStr = rowCells.join(' ').toUpperCase();
+    const cells = rows[r].map(c => String(c).trim());
 
-    if (portRowIdx < 0 && (rowStr.includes('ANTWERP') || rowStr.includes('GHENT') || rowStr.includes('HAMBURG') || rowStr.includes('SKAW') || rowStr.includes('ROTTERDAM') || rowStr.includes('SINGAPORE'))) {
+    if (portRowIdx < 0 && cells.some(c => ['ANTWERP','GHENT','HAMBURG','SKAW','ROTTERDAM','SINGAPORE','FUJAIRAH','HOUSTON','TALLINN','PANAMA','PIRAEUS','BUSAN'].includes(c.toUpperCase()))) {
       portRowIdx = r;
     }
-    if (gradeRowIdx < 0 && (rowStr.includes('VLSFO') || rowStr.includes('HSFO') || rowStr.includes('MGO') || rowStr.includes('380'))) {
+    if (gradeRowIdx < 0 && cells.some(c => ['VLSFO','HSFO','MGO','380','ULSFO','LS380','0.5%','0.1%'].includes(c.toUpperCase()))) {
       gradeRowIdx = r;
     }
-    if (tickerRowIdx < 0 && rowStr.includes('ZNH')) {
+    if (tickerRowIdx < 0 && cells.some(c => c.toUpperCase().startsWith('ZNH') && c.length < 30)) {
       tickerRowIdx = r;
     }
     if (dataStartRow < 0) {
