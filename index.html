@@ -187,9 +187,9 @@
               </label>
               <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
                 <input type="text" id="folder-path-input" 
-                       placeholder="Paste folder path (e.g. C:\Users\deepak\OneDrive\onedrivebunker) or OneDrive URL..." 
+                       placeholder="Paste folder path (e.g. C:\\Users\\deepak\\OneDrive\\onedrivebunker) or OneDrive URL..." 
                        value="C:\Users\deepak\OneDrive\onedrivebunker" 
-                       style="flex:1;min-width:260px;padding:8px 12px;background:rgba(6,9,19,0.8);border:1px solid var(--border-color);border-radius:5px;color:var(--color-text-main);font-family:'JetBrains Mono',monospace;font-size:0.8rem;outline:none;"
+                       style="flex:1;min-width:260px;padding:8px 12px;background:var(--bg-base);border:1px solid var(--border-color);border-radius:5px;color:var(--color-text-main);font-family:'JetBrains Mono',monospace;font-size:0.8rem;outline:none;"
                        onkeydown="if(event.key==='Enter') syncFromPathInput()">
                 <button onclick="syncFromPathInput()" class="export-btn" style="padding:8px 18px;font-size:0.8rem;font-weight:700;background:var(--color-primary);color:#fff;white-space:nowrap;box-shadow:0 2px 10px rgba(0,130,240,0.4);">
                   ⚡ Sync & Load Data
@@ -209,7 +209,7 @@
               Showing <span id="grid-row-count">100</span> row(s) and <span id="grid-col-count">15</span> column(s). Blank cells are kept.
             </div>
 
-            <div style="overflow-x:auto;overflow-y:auto;max-height:280px;border:1px solid var(--border-color);border-radius:6px;background:#090d18;">
+            <div style="overflow-x:auto;overflow-y:auto;max-height:280px;border:1px solid var(--border-color);border-radius:6px;background:var(--bg-base);">
               <table id="excel-spreadsheet-table" class="excel-grid-table">
                 <thead id="excel-grid-thead"></thead>
                 <tbody id="excel-grid-tbody"></tbody>

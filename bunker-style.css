@@ -116,6 +116,29 @@ body.light-theme .excel-grid-table th {
   color: #0f172a !important;
 }
 
+body.light-theme .excel-grid-table td.row-num {
+  background: #e2e8f0 !important;
+  color: #64748b !important;
+  border-right-color: #cbd5e1 !important;
+}
+
+body.light-theme .ticker-tape-container {
+  background: #f8fafc !important;
+  border-bottom-color: #cbd5e1 !important;
+}
+
+body.light-theme .search-box input {
+  background: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+body.light-theme .category-tab {
+  background: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  color: #64748b !important;
+}
+
 body.light-theme .excel-grid-table td {
   border-color: #e2e8f0 !important;
   color: #0f172a !important;
