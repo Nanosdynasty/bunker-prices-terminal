@@ -5,7 +5,9 @@ from datetime import date, datetime, timezone
 from io import BytesIO
 from pathlib import Path
 
-from flask import Flask, jsonify, render_template, request, session
+import msal
+import requests
+from flask import Flask, jsonify, redirect, render_template, request, session, url_for
 from flask_session import Session
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
@@ -25,6 +27,8 @@ EXCEL_ERRORS = {"#NULL!", "#DIV/0!", "#VALUE!", "#REF!", "#NAME?", "#NUM!", "#N/
 MAX_ROWS = 2000
 MAX_COLUMNS = 200
 DEFAULT_WORKBOOK_ROOT = r"C:\Users\deepak\OneDrive\onedrivebunker"
+GRAPH_ROOT = "https://graph.microsoft.com/v1.0"
+GRAPH_SCOPES = ["User.Read", "Files.Read", "offline_access"]
 _locks_guard = threading.Lock()
 _session_locks: dict[str, threading.Lock] = {}
 
@@ -68,6 +72,10 @@ def create_app(test_config=None):
         SESSION_COOKIE_SECURE=False,
         MAX_WORKBOOK_BYTES=int(os.getenv("MAX_WORKBOOK_MB", "50")) * 1024 * 1024,
         LOCAL_WORKBOOK_ROOT=configured_root,
+        MS_CLIENT_ID=os.getenv("MS_CLIENT_ID", ""),
+        MS_CLIENT_SECRET=os.getenv("MS_CLIENT_SECRET", ""),
+        MS_AUTHORITY=os.getenv("MS_AUTHORITY", "https://login.microsoftonline.com/common"),
+        MS_REDIRECT_PATH=os.getenv("MS_REDIRECT_PATH", "/auth/callback"),
         TESTING=False,
     )
     if test_config:
@@ -109,7 +117,11 @@ def create_app(test_config=None):
 
     @app.get("/health")
     def health():
-        return jsonify(status="ok", workbook_root_available=workbook_root().is_dir())
+        return jsonify(
+            status="ok",
+            workbook_root_available=workbook_root().is_dir(),
+            microsoft_auth_configured=auth_configured(),
+        )
 
     @app.get("/api/state")
     def api_state():
@@ -117,6 +129,114 @@ def create_app(test_config=None):
         res = public_state()
         res["csrf_token"] = session["csrf_token"]
         return jsonify(res)
+
+    @app.get("/auth/connect")
+    def auth_connect():
+        if not auth_configured():
+            raise AppError(
+                "Microsoft sign-in is not configured. Set MS_CLIENT_ID, MS_CLIENT_SECRET, and the redirect URI first.",
+                503,
+                "microsoft_auth_not_configured",
+            )
+        flow = build_msal_app().initiate_auth_code_flow(
+            scopes=GRAPH_SCOPES,
+            redirect_uri=external_redirect_uri(),
+        )
+        session["auth_flow"] = flow
+        session.modified = True
+        return redirect(flow["auth_uri"])
+
+    @app.get("/auth/callback")
+    def auth_callback():
+        flow = session.get("auth_flow")
+        if not flow:
+            raise AppError("Microsoft sign-in session expired. Start the connection again.", 400, "expired_oauth_session")
+        try:
+            msal_app = build_msal_app()
+            result = msal_app.acquire_token_by_auth_code_flow(flow, dict(request.args))
+        except ValueError as exc:
+            raise AppError("Microsoft sign-in state validation failed. Start the connection again.", 400, "oauth_state_failed") from exc
+        if "access_token" not in result:
+            raise AppError(
+                result.get("error_description") or "Microsoft permission was denied or sign-in failed.",
+                403,
+                "microsoft_permission_denied",
+            )
+        session["token_cache"] = msal_app.token_cache.serialize()
+        session["account"] = result.get("id_token_claims", {})
+        session.pop("auth_flow", None)
+        session.modified = True
+        return redirect(url_for("index"))
+
+    @app.get("/api/onedrive/status")
+    def onedrive_status():
+        return jsonify({
+            "configured": auth_configured(),
+            "connected": graph_connected(),
+            "user": signed_in_user_label(),
+        })
+
+    @app.get("/api/onedrive/folder")
+    def onedrive_folder():
+        token = graph_access_token()
+        drive_id = request.args.get("drive_id", "")
+        item_id = request.args.get("item_id", "root")
+        if drive_id and item_id != "root":
+            endpoint = f"/drives/{drive_id}/items/{item_id}/children"
+        elif drive_id:
+            endpoint = f"/drives/{drive_id}/root/children"
+        else:
+            endpoint = "/me/drive/root/children"
+        data = graph_get_json(endpoint, token)
+        items = []
+        for item in data.get("value", []):
+            is_folder = "folder" in item
+            is_xlsx = item.get("name", "").lower().endswith(".xlsx")
+            if is_folder or is_xlsx:
+                items.append({
+                    "name": item.get("name", ""),
+                    "id": item.get("id", ""),
+                    "drive_id": item.get("parentReference", {}).get("driveId") or drive_id,
+                    "folder": is_folder,
+                    "modified": item.get("lastModifiedDateTime"),
+                    "size": item.get("size"),
+                })
+        items.sort(key=lambda item: (not item["folder"], item["name"].lower()))
+        return jsonify(items=items, path=item_id)
+
+    @app.post("/api/select-onedrive-file")
+    def select_onedrive_file():
+        payload = request.get_json(silent=True) or {}
+        drive_id = payload.get("drive_id")
+        item_id = payload.get("item_id")
+        if not drive_id or not item_id:
+            raise AppError("Missing OneDrive drive or file ID. Select the file from the browser list.", 400, "missing_drive_item")
+        token = graph_access_token()
+        metadata = graph_get_json(f"/drives/{drive_id}/items/{item_id}", token)
+        if not metadata.get("name", "").lower().endswith(".xlsx"):
+            raise AppError("Only standard .xlsx workbook files are supported.", 415, "unsupported_file")
+        content = graph_download_workbook(drive_id, item_id, token)
+        signature = graph_signature(metadata)
+        session["selection"] = {
+            "source": "onedrive",
+            "drive_id": drive_id,
+            "item_id": item_id,
+            "filename": metadata.get("name", "OneDrive workbook.xlsx"),
+            "file_modified": metadata.get("lastModifiedDateTime"),
+            "observed_signature": signature,
+            "loaded_signature": None,
+            "sheet_names": workbook_sheet_names(content),
+            "worksheet": None,
+            "last_check": utc_now(),
+            "last_load": None,
+            "changed_detected": None,
+            "stale": False,
+            "error": None,
+            "preview": None,
+            "raw_matrix": None,
+        }
+        session.modified = True
+        return jsonify(public_state())
 
     @app.get("/api/folder")
     def list_folder():
@@ -168,8 +288,7 @@ def create_app(test_config=None):
     def select_sheet():
         selected = require_selection()
         sheet = (request.get_json(silent=True) or {}).get("worksheet")
-        path = validate_workbook_path(selected["relative_path"])
-        content, stat = read_workbook(path)
+        content, metadata = read_selected_workbook(selected)
         names = workbook_sheet_names(content)
         if sheet not in names:
             raise AppError("That worksheet does not exist in the workbook.", 409, "missing_worksheet")
@@ -180,9 +299,9 @@ def create_app(test_config=None):
             preview=workbook_preview(content, sheet),
             raw_matrix=raw_rows,
             sheet_names=names,
-            file_modified=modified_iso(stat),
-            observed_signature=file_signature(stat),
-            loaded_signature=file_signature(stat),
+            file_modified=metadata["modified"],
+            observed_signature=metadata["signature"],
+            loaded_signature=metadata["signature"],
             last_check=utc_now(),
             last_load=utc_now(),
             changed_detected=False,
@@ -224,25 +343,24 @@ def create_app(test_config=None):
 
     def run_refresh(selected, force_reload=False):
         try:
-            path = validate_workbook_path(selected["relative_path"])
-            stat = path.stat()
-            signature = file_signature(stat)
+            metadata = selected_metadata(selected)
+            signature = metadata["signature"]
             selected["last_check"] = utc_now()
-            selected["file_modified"] = modified_iso(stat)
+            selected["file_modified"] = metadata["modified"]
             selected["observed_signature"] = signature
             changed = signature != selected.get("loaded_signature")
             selected["changed_detected"] = changed
             if changed or force_reload:
-                content, stat = read_workbook(path)
+                content, metadata = read_selected_workbook(selected)
                 names = workbook_sheet_names(content)
                 if selected["worksheet"] not in names:
                     raise AppError("The selected worksheet is missing from the changed workbook.", 409, "missing_worksheet")
                 selected["preview"] = workbook_preview(content, selected["worksheet"])
                 selected["raw_matrix"] = workbook_raw_matrix(content, selected["worksheet"])
                 selected["sheet_names"] = names
-                selected["loaded_signature"] = file_signature(stat)
+                selected["loaded_signature"] = metadata["signature"]
                 selected["last_load"] = utc_now()
-                selected["file_modified"] = modified_iso(stat)
+                selected["file_modified"] = metadata["modified"]
             selected["stale"] = False
             selected["error"] = None
             session.modified = True
@@ -300,6 +418,119 @@ def read_workbook(path):
         ) from exc
 
 
+def read_selected_workbook(selected):
+    if selected.get("source") == "onedrive":
+        token = graph_access_token()
+        metadata = graph_get_json(f"/drives/{selected['drive_id']}/items/{selected['item_id']}", token)
+        content = graph_download_workbook(selected["drive_id"], selected["item_id"], token)
+        return content, {"modified": metadata.get("lastModifiedDateTime"), "signature": graph_signature(metadata)}
+    path = validate_workbook_path(selected["relative_path"])
+    content, stat = read_workbook(path)
+    return content, {"modified": modified_iso(stat), "signature": file_signature(stat)}
+
+
+def selected_metadata(selected):
+    if selected.get("source") == "onedrive":
+        token = graph_access_token()
+        metadata = graph_get_json(f"/drives/{selected['drive_id']}/items/{selected['item_id']}", token)
+        return {"modified": metadata.get("lastModifiedDateTime"), "signature": graph_signature(metadata)}
+    path = validate_workbook_path(selected["relative_path"])
+    stat = path.stat()
+    return {"modified": modified_iso(stat), "signature": file_signature(stat)}
+
+
+def graph_signature(metadata):
+    return ":".join(str(metadata.get(key, "")) for key in ("eTag", "lastModifiedDateTime", "size"))
+
+
+def build_msal_app():
+    from flask import current_app
+    cache = msal.SerializableTokenCache()
+    if session.get("token_cache"):
+        cache.deserialize(session["token_cache"])
+    return msal.ConfidentialClientApplication(
+        current_app.config["MS_CLIENT_ID"],
+        authority=current_app.config["MS_AUTHORITY"],
+        client_credential=current_app.config["MS_CLIENT_SECRET"],
+        token_cache=cache,
+    )
+
+
+def auth_configured():
+    from flask import current_app
+    return bool(current_app.config["MS_CLIENT_ID"] and current_app.config["MS_CLIENT_SECRET"])
+
+
+def external_redirect_uri():
+    return os.getenv("MS_REDIRECT_URI") or url_for("auth_callback", _external=True)
+
+
+def graph_connected():
+    return bool(session.get("token_cache"))
+
+
+def signed_in_user_label():
+    account = session.get("account") or {}
+    return account.get("preferred_username") or account.get("name") or ""
+
+
+def graph_access_token():
+    if not auth_configured():
+        raise AppError("Microsoft sign-in is not configured on this server.", 503, "microsoft_auth_not_configured")
+    app = build_msal_app()
+    accounts = app.get_accounts()
+    result = app.acquire_token_silent(GRAPH_SCOPES, account=accounts[0] if accounts else None)
+    if not result:
+        raise AppError("Microsoft session expired. Connect OneDrive again.", 401, "microsoft_session_expired")
+    if "access_token" not in result:
+        raise AppError(result.get("error_description") or "Could not renew Microsoft access.", 401, "microsoft_token_failed")
+    session["token_cache"] = app.token_cache.serialize()
+    session.modified = True
+    return result["access_token"]
+
+
+def graph_headers(token):
+    return {"Authorization": f"Bearer {token}"}
+
+
+def graph_get_json(endpoint, token):
+    response = requests.get(f"{GRAPH_ROOT}{endpoint}", headers=graph_headers(token), timeout=20)
+    if response.status_code == 401:
+        raise AppError("Microsoft session expired. Connect OneDrive again.", 401, "microsoft_session_expired")
+    if response.status_code == 403:
+        raise AppError("Microsoft denied access to that OneDrive item.", 403, "microsoft_permission_denied")
+    if response.status_code == 404:
+        raise AppError("The selected OneDrive file or folder no longer exists.", 404, "missing_file")
+    if response.status_code == 429:
+        raise AppError("Microsoft Graph is throttling requests. Wait a minute and refresh again.", 429, "graph_throttled")
+    if not response.ok:
+        raise AppError("Microsoft Graph request failed.", 502, "graph_request_failed")
+    return response.json()
+
+
+def graph_download_workbook(drive_id, item_id, token):
+    from flask import current_app
+    response = requests.get(
+        f"{GRAPH_ROOT}/drives/{drive_id}/items/{item_id}/content",
+        headers=graph_headers(token),
+        timeout=60,
+        allow_redirects=True,
+    )
+    if response.status_code == 401:
+        raise AppError("Microsoft session expired. Connect OneDrive again.", 401, "microsoft_session_expired")
+    if response.status_code == 403:
+        raise AppError("Microsoft denied access to download that workbook.", 403, "microsoft_permission_denied")
+    if response.status_code == 404:
+        raise AppError("The selected OneDrive workbook no longer exists.", 404, "missing_file")
+    if response.status_code == 429:
+        raise AppError("Microsoft Graph is throttling downloads. Wait a minute and refresh again.", 429, "graph_throttled")
+    if not response.ok:
+        raise AppError("OneDrive workbook download failed.", 502, "download_failed")
+    if len(response.content) > int(current_app.config["MAX_WORKBOOK_BYTES"]):
+        raise AppError("The workbook is larger than this prototype allows.", 413, "file_too_large")
+    return response.content
+
+
 def file_signature(stat):
     return f"{stat.st_mtime_ns}:{stat.st_size}"
 
@@ -353,11 +584,15 @@ def workbook_preview(content, sheet_name):
         natural_columns = max(values_ws.max_column, formulas_ws.max_column, 1)
         column_count = min(natural_columns, MAX_COLUMNS)
         rows = []
-        for row_number in range(1, row_count + 1):
+        value_rows = values_ws.iter_rows(
+            min_row=1, max_row=row_count, min_col=1, max_col=column_count, values_only=False
+        )
+        formula_rows = formulas_ws.iter_rows(
+            min_row=1, max_row=row_count, min_col=1, max_col=column_count, values_only=False
+        )
+        for value_row, formula_row in zip(value_rows, formula_rows):
             row = []
-            for column_number in range(1, column_count + 1):
-                value_cell = values_ws.cell(row_number, column_number)
-                formula_cell = formulas_ws.cell(row_number, column_number)
+            for value_cell, formula_cell in zip(value_row, formula_row):
                 value = value_cell.value
                 missing_cache = formula_cell.data_type == "f" and value is None
                 is_error = value_cell.data_type == "e" or (isinstance(value, str) and value in EXCEL_ERRORS)
@@ -410,7 +645,16 @@ def session_lock():
 
 
 def public_state():
-    return {"connected": True, "selection": session.get("selection")}
+    root = workbook_root()
+    return {
+        "connected": True,
+        "configured_root": str(root),
+        "root_available": root.is_dir(),
+        "onedrive_connected": graph_connected(),
+        "onedrive_user": signed_in_user_label(),
+        "microsoft_auth_configured": auth_configured(),
+        "selection": session.get("selection"),
+    }
 
 
 app = create_app()

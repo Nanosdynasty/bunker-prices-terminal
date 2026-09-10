@@ -494,6 +494,7 @@ function renderNews() {
 let csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
 let selectedFilePath = '';
 let syncTimer = null;
+let oneDriveFolderStack = [];
 
 async function apiFetch(url, options = {}) {
   options.headers = options.headers || {};
@@ -614,7 +615,7 @@ async function pollRefreshSync() {
 
 function startSyncPolling() {
   if (syncTimer) clearInterval(syncTimer);
-  syncTimer = setInterval(pollRefreshSync, 5000);
+  syncTimer = setInterval(pollRefreshSync, 30000);
 }
 
 function updateSyncHeaderTag(active, filename, sheet) {
@@ -661,7 +662,7 @@ function updateSyncViewDOM(data) {
   if (allowedFolder) allowedFolder.textContent = data.configured_root || `C:\\Users\\deepak\\OneDrive\\onedrivebunker`;
   if (folderStatus) folderStatus.textContent = data.connected ? 'Available' : 'Unavailable';
 
-  if (metaConn) metaConn.textContent = selection.relative_path ? 'Direct local file' : 'Client file upload';
+  if (metaConn) metaConn.textContent = selection.source === 'onedrive' ? 'OneDrive cloud file' : (selection.relative_path ? 'Direct local file' : 'Client file upload');
   if (metaFilename) metaFilename.textContent = selection.filename || (currentSyncFile || 'Book 2.xlsx');
   if (metaSheet) metaSheet.textContent = selection.worksheet || (currentSyncSheet || 'Sheet1');
   if (metaModified) metaModified.textContent = selection.file_modified ? formatDisplayDate(selection.file_modified) : formatDisplayDate(new Date().toISOString());
@@ -765,6 +766,13 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
+function escapeJsString(str) {
+  return String(str)
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/\r?\n/g, ' ');
+}
+
 async function loadViewWorksheet(sheetName) {
   if (!sheetName) {
     const dropdown = document.getElementById('excel-view-sheet-dropdown');
@@ -827,79 +835,108 @@ function toggleAutoRefreshSetting(enabled) {
 function openLinkModal() {
   document.getElementById('link-modal').style.display = 'flex';
   loadFolderList();
+  loadOneDriveStatus();
 }
 function closeLinkModal() {
   document.getElementById('link-modal').style.display = 'none';
 }
 
-// Convert any OneDrive / SharePoint share URL into a direct download URL
-function buildOneDriveDownloadUrl(rawUrl) {
-  if (rawUrl.includes('/download?') || rawUrl.match(/[?&]download=1/)) return rawUrl;
-  if (rawUrl.includes('1drv.ms') || rawUrl.includes('onedrive.live.com')) {
-    return rawUrl + (rawUrl.includes('?') ? '&download=1' : '?download=1');
+async function loadOneDriveStatus() {
+  const status = document.getElementById('onedrive-cloud-status');
+  const browser = document.getElementById('onedrive-cloud-browser');
+  const connectBtn = document.getElementById('onedrive-connect-btn');
+  if (!status) return;
+  try {
+    const data = await apiFetch('/api/onedrive/status');
+    if (!data.configured) {
+      status.textContent = 'Microsoft sign-in is not configured on this server.';
+      if (connectBtn) connectBtn.disabled = true;
+      if (browser) browser.style.display = 'none';
+      return;
+    }
+    if (connectBtn) connectBtn.disabled = false;
+    if (data.connected) {
+      status.textContent = data.user ? `Connected as ${data.user}` : 'Connected to Microsoft.';
+      if (browser) browser.style.display = 'block';
+      await loadOneDriveFolder();
+    } else {
+      status.textContent = 'Not connected. Sign in to browse OneDrive cloud files.';
+      if (browser) browser.style.display = 'none';
+    }
+  } catch (err) {
+    status.textContent = err.message || 'Could not check Microsoft connection.';
+    if (browser) browser.style.display = 'none';
   }
-  if (rawUrl.includes('sharepoint.com') || rawUrl.includes('office365.com') || rawUrl.includes('office.com')) {
-    return rawUrl
-      .replace(/[?&]web=\d/g, '')
-      .replace(/[?&]e=[^&]+/g, '')
-      + (rawUrl.includes('?') ? '&download=1' : '?download=1');
-  }
-  return rawUrl + (rawUrl.includes('?') ? '&download=1' : '?download=1');
 }
 
-async function connectOneDriveURL() {
-  const rawUrl = document.getElementById('onedrive-url-input').value.trim();
-  if (!rawUrl) return;
+function connectOneDriveCloud() {
+  window.location.href = '/auth/connect';
+}
 
-  const btn    = document.getElementById('connect-btn');
-  const errEl  = document.getElementById('link-error');
-  const progEl = document.getElementById('link-progress');
-
-  btn.disabled = true;
-  btn.textContent = 'Connecting...';
-  errEl.style.display = 'none';
-
-  const dlUrl = buildOneDriveDownloadUrl(rawUrl);
-
-  const PROXIES = [
-    u => u,
-    u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
-    u => `https://corsproxy.io/?${encodeURIComponent(u)}`,
-    u => `https://cors-anywhere.herokuapp.com/${u}`,
-    u => `https://proxy.cors.sh/${u}`
-  ];
-
-  let lastError = '';
-  for (let i = 0; i < PROXIES.length; i++) {
-    const proxyUrl = PROXIES[i](dlUrl);
-    if (progEl) progEl.textContent = `Trying method ${i + 1} of ${PROXIES.length}...`;
-    try {
-      const resp = await fetch(proxyUrl, { signal: AbortSignal.timeout(12000) });
-      if (!resp.ok) { lastError = `HTTP ${resp.status}`; continue; }
-      const buf = await resp.arrayBuffer();
-      if (buf.byteLength < 100) { lastError = 'Empty response'; continue; }
-      if (progEl) progEl.textContent = '';
-      btn.disabled = false;
-      btn.textContent = 'Connect';
-      parseAndLoad(buf, "OneDrive File");
-      closeLinkModal();
+async function loadOneDriveFolder(driveId = '', itemId = 'root', label = '/ (Root)', pushStack = false) {
+  const container = document.getElementById('onedrive-items-list');
+  const pathDisplay = document.getElementById('onedrive-path-display');
+  const backBtn = document.getElementById('onedrive-back-btn');
+  if (!container) return;
+  if (pushStack) oneDriveFolderStack.push({ driveId, itemId, label });
+  container.innerHTML = `<div style="font-size:0.74rem;color:var(--color-text-muted);padding:4px;">Loading OneDrive items...</div>`;
+  if (pathDisplay) pathDisplay.textContent = label;
+  if (backBtn) backBtn.style.display = oneDriveFolderStack.length > 1 ? 'inline' : 'none';
+  try {
+    const params = new URLSearchParams({ item_id: itemId });
+    if (driveId) params.set('drive_id', driveId);
+    const data = await apiFetch(`/api/onedrive/folder?${params.toString()}`);
+    if (!pushStack && oneDriveFolderStack.length === 0) oneDriveFolderStack.push({ driveId, itemId, label });
+    if (!data.items || data.items.length === 0) {
+      container.innerHTML = `<div style="font-size:0.74rem;color:var(--color-text-muted);padding:4px;">(No .xlsx files or folders here)</div>`;
       return;
-    } catch(e) {
-      lastError = e.message;
-      continue;
     }
+    container.innerHTML = data.items.map(item => {
+      if (item.folder) {
+        return `<div onclick="openOneDriveFolder('${escapeJsString(item.drive_id)}', '${escapeJsString(item.id)}', '${escapeJsString(item.name)}')" style="display:flex;align-items:center;gap:6px;padding:5px 8px;border-radius:4px;cursor:pointer;background:rgba(255,255,255,0.03);color:#e2e8f0;font-size:0.75rem;" onmouseover="this.style.background='rgba(255,255,255,0.08)'" onmouseout="this.style.background='rgba(255,255,255,0.03)'">
+          <span>📁</span> <strong style="color:var(--color-primary);">${escapeHtml(item.name)}</strong>
+        </div>`;
+      }
+      return `<div onclick="selectOneDriveFile('${escapeJsString(item.drive_id)}', '${escapeJsString(item.id)}', '${escapeJsString(item.name)}')" style="display:flex;align-items:center;justify-content:space-between;padding:5px 8px;border-radius:4px;cursor:pointer;background:rgba(56,189,248,0.08);border:1px solid rgba(56,189,248,0.18);color:#fff;font-size:0.75rem;" onmouseover="this.style.background='rgba(56,189,248,0.14)'" onmouseout="this.style.background='rgba(56,189,248,0.08)'">
+        <span style="display:flex;align-items:center;gap:6px;">📊 <strong>${escapeHtml(item.name)}</strong></span>
+        <span style="font-size:0.68rem;color:#38bdf8;font-weight:600;">Select Cloud File</span>
+      </div>`;
+    }).join('');
+  } catch (err) {
+    container.innerHTML = `<div style="font-size:0.72rem;color:#fca5a5;padding:4px;">${escapeHtml(err.message)}</div>`;
   }
+}
 
-  if (progEl) progEl.textContent = '';
-  btn.disabled = false;
-  btn.textContent = 'Connect';
-  errEl.innerHTML = `
-    <strong>⚠️ Could not fetch the file automatically.</strong><br>
-    <span style="font-weight:400;">Browser security (CORS) blocks direct access to OneDrive URLs from web apps.</span><br><br>
-    <strong>✅ Easy fix — select the file from the OneDrive folder browser above!</strong>
-    <br><small style="opacity:0.7;margin-top:4px;display:block;">Last error: ${lastError}</small>
-  `;
-  errEl.style.display = 'block';
+function openOneDriveFolder(driveId, itemId, name) {
+  loadOneDriveFolder(driveId, itemId, name, true);
+}
+
+function backOneDriveFolder() {
+  if (oneDriveFolderStack.length <= 1) return;
+  oneDriveFolderStack.pop();
+  const previous = oneDriveFolderStack[oneDriveFolderStack.length - 1];
+  loadOneDriveFolder(previous.driveId, previous.itemId, previous.label, false);
+}
+
+async function selectOneDriveFile(driveId, itemId, name) {
+  selectedFilePath = `onedrive:${itemId}`;
+  const statusEl = document.getElementById('sync-active-badge');
+  const box = document.getElementById('sheet-select-box');
+  const select = document.getElementById('worksheet-dropdown');
+  if (statusEl) statusEl.textContent = `Reading cloud file "${name}"...`;
+  try {
+    const data = await apiFetch('/api/select-onedrive-file', {
+      method: 'POST',
+      body: { drive_id: driveId, item_id: itemId }
+    });
+    const sheets = data.selection?.sheet_names || [];
+    if (sheets.length === 0) throw new Error('No worksheets found in workbook.');
+    select.innerHTML = sheets.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('');
+    if (box) box.style.display = 'block';
+    if (statusEl) statusEl.textContent = `Selected cloud file "${name}"`;
+  } catch (err) {
+    alert('Error selecting OneDrive workbook: ' + err.message);
+  }
 }
 
 function handleFileUpload(e) {
