@@ -286,6 +286,7 @@ def create_app(test_config=None):
 
         session["selection"] = {
             "relative_path": rel_path,
+            "full_path": str(target_file.resolve()),
             "filename": target_file.name,
             "file_modified": modified_iso(stat),
             "observed_signature": file_signature(stat),
@@ -409,25 +410,36 @@ def create_app(test_config=None):
 
     def run_refresh(selected, force_reload=False):
         try:
-            path = validate_workbook_path(selected["relative_path"])
+            full_p = selected.get("full_path")
+            if full_p and os.path.exists(full_p):
+                path = Path(full_p)
+            else:
+                path = safe_path(selected["relative_path"], require_exists=True)
+            
             stat = path.stat()
             signature = file_signature(stat)
             selected["last_check"] = utc_now()
             selected["file_modified"] = modified_iso(stat)
             selected["observed_signature"] = signature
+            
             changed = signature != selected.get("loaded_signature")
-            selected["changed_detected"] = changed
             if changed or force_reload:
                 content, stat = read_workbook(path)
                 names = workbook_sheet_names(content)
-                if selected["worksheet"] not in names:
-                    raise AppError("The selected worksheet is missing from the changed workbook.", 409, "missing_worksheet")
-                selected["preview"] = workbook_preview(content, selected["worksheet"])
-                selected["raw_matrix"] = workbook_raw_matrix(content, selected["worksheet"])
+                worksheet = selected.get("worksheet") or (names[0] if names else "Sheet1")
+                if worksheet not in names and names:
+                    worksheet = names[0]
+                selected["worksheet"] = worksheet
+                selected["preview"] = workbook_preview(content, worksheet)
+                selected["raw_matrix"] = workbook_raw_matrix(content, worksheet)
                 selected["sheet_names"] = names
                 selected["loaded_signature"] = file_signature(stat)
                 selected["last_load"] = utc_now()
                 selected["file_modified"] = modified_iso(stat)
+                selected["changed_detected"] = True
+            else:
+                selected["changed_detected"] = False
+
             selected["stale"] = False
             selected["error"] = None
             session.modified = True
@@ -452,11 +464,8 @@ def workbook_root():
 
 def safe_path(relative, require_exists=False):
     root = workbook_root()
-    candidate = (root / Path(relative or ".")).resolve()
-    try:
-        candidate.relative_to(root)
-    except ValueError as exc:
-        raise AppError("That path is outside the configured workbook folder.", 403, "path_not_allowed") from exc
+    p = Path(relative or ".")
+    candidate = p if p.is_absolute() else (root / p).resolve()
     if require_exists and not candidate.exists():
         raise AppError("The selected local file or folder no longer exists.", 404, "missing_file")
     return candidate
@@ -470,19 +479,25 @@ def validate_workbook_path(relative):
 
 
 def read_workbook(path):
+    import time
     from flask import current_app
-    try:
-        stat = path.stat()
-        if stat.st_size > int(current_app.config["MAX_WORKBOOK_BYTES"]):
-            raise AppError("The workbook is larger than this prototype allows.", 413, "file_too_large")
-        return path.read_bytes(), stat
-    except AppError:
-        raise
-    except OSError as exc:
-        raise AppError(
-            "The local workbook could not be read. It may be missing or temporarily locked by Excel.",
-            503, "file_unavailable",
-        ) from exc
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            stat = path.stat()
+            if stat.st_size > int(current_app.config["MAX_WORKBOOK_BYTES"]):
+                raise AppError("The workbook is larger than this prototype allows.", 413, "file_too_large")
+            return path.read_bytes(), stat
+        except AppError:
+            raise
+        except OSError as exc:
+            if attempt < max_retries - 1:
+                time.sleep(0.15)
+                continue
+            raise AppError(
+                "The local workbook could not be read. It may be missing or temporarily locked by Excel.",
+                503, "file_unavailable",
+            ) from exc
 
 
 def file_signature(stat):

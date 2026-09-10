@@ -810,15 +810,14 @@ async function pollRefreshSync() {
   try {
     const data = await apiFetch('/api/refresh', {
       method: 'POST',
-      body: { force: false }
+      body: { force: true }
     });
 
-    if (data.selection && data.selection.changed_detected && data.selection.raw_matrix) {
-      console.log('⚡ Live change detected in synced Excel file! Updating terminal UI...');
+    if (data && data.selection && data.selection.raw_matrix) {
       parseAndLoadRows(data.selection.raw_matrix, data.selection.worksheet);
       updateSyncHeaderTag(true, data.selection.filename, data.selection.worksheet);
     }
-    updateRefreshStateInfo(data.selection ? data.selection.filename : null);
+    updateRefreshStateInfo(data && data.selection ? data.selection.filename : null);
   } catch (err) {
     // Silent catch on background sync polling
   }
