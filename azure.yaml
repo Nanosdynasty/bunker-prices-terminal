@@ -1,0 +1,6 @@
+name: bunker-prices-terminal
+services:
+  web:
+    project: .
+    language: py
+    host: appservice

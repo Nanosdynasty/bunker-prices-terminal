@@ -13,10 +13,11 @@ Live Howe Robinson Bunker Fuel Prices Terminal providing interactive tracking fo
 
 ## Excel Linking
 
-The terminal supports two read-only Excel connection modes:
+The terminal supports three Excel connection modes:
 
 - Local folder: Flask lists `.xlsx` files under `LOCAL_WORKBOOK_ROOT`, reads the selected workbook with `openpyxl`, and refreshes saved changes from disk.
-- OneDrive cloud: Microsoft OAuth sign-in uses MSAL, then the Flask backend browses OneDrive with Microsoft Graph and downloads the selected `.xlsx` file server-side.
+- OneDrive cloud browser: Microsoft OAuth sign-in uses MSAL, then the Flask backend browses OneDrive with Microsoft Graph and downloads the selected `.xlsx` file server-side.
+- OneDrive / SharePoint link: after Microsoft sign-in, paste a direct Excel workbook sharing link and the backend resolves it with Microsoft Graph's Shares API.
 
 The browser never stores Microsoft tokens. Tokens and selected file IDs are kept in the server-side Flask session. A restart or redeploy may require reconnection.
 
@@ -40,7 +41,7 @@ For local-folder linking, set:
 LOCAL_WORKBOOK_ROOT=C:\Users\deepak\OneDrive\onedrivebunker
 ```
 
-## Microsoft OneDrive Setup
+## Microsoft OneDrive / SharePoint Setup
 
 Create one Microsoft Entra app registration:
 
@@ -52,13 +53,14 @@ Create one Microsoft Entra app registration:
 http://localhost:5050/auth/callback
 ```
 
-4. Add a second web redirect URI for Render after deployment:
+4. Add a second web redirect URI for Render or Azure after deployment:
 
 ```text
 https://your-render-service.onrender.com/auth/callback
+https://your-azure-app-name.azurewebsites.net/auth/callback
 ```
 
-5. Add delegated Microsoft Graph permissions:
+5. Add delegated Microsoft Graph permissions for sign-in and OneDrive browsing:
 
 ```text
 User.Read
@@ -66,8 +68,17 @@ Files.Read
 offline_access
 ```
 
+For pasted OneDrive/SharePoint sharing links, this app uses Microsoft Graph:
+
+```text
+GET /shares/{encodedSharingUrl}/driveItem
+GET /shares/{encodedSharingUrl}/driveItem/content
+```
+
+Microsoft documents the sharing-link lookup API separately from ordinary drive browsing. Depending on the tenant and link policy, an administrator may need to consent to the permission Microsoft requires for shared-link access. If shared-link access is blocked by policy, use the signed-in OneDrive browser instead.
+
 6. Create a client secret and copy the secret value, not the secret ID.
-7. Set these environment variables locally and on Render:
+7. Set these environment variables locally and on Render/Azure:
 
 ```env
 MS_CLIENT_ID=your-application-client-id
@@ -77,6 +88,12 @@ MS_REDIRECT_URI=http://localhost:5050/auth/callback
 ```
 
 On Render, set `MS_REDIRECT_URI` to the Render callback URL.
+
+On Azure App Service, set `MS_REDIRECT_URI` to:
+
+```text
+https://your-azure-app-name.azurewebsites.net/auth/callback
+```
 
 ## Deployment
 
@@ -89,3 +106,28 @@ Health check: /health
 ```
 
 Do not commit `.env`, credentials, or workbooks.
+
+## Azure App Service Deployment
+
+This branch includes `azure.yaml` and `startup.sh` for Azure App Service.
+
+Typical Azure setup:
+
+```bash
+az login
+azd auth login
+azd up
+```
+
+In the Azure Portal, configure App Service application settings:
+
+```text
+FLASK_SECRET_KEY=<long random string>
+MS_CLIENT_ID=<Entra application client id>
+MS_CLIENT_SECRET=<Entra client secret value>
+MS_AUTHORITY=https://login.microsoftonline.com/common
+MS_REDIRECT_URI=https://your-azure-app-name.azurewebsites.net/auth/callback
+MAX_WORKBOOK_MB=50
+```
+
+For cloud deployment, use the OneDrive/SharePoint connector. Azure cannot read a tester's `C:\Users\...` folder.

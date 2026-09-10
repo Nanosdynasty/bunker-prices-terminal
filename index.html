@@ -412,16 +412,24 @@
         <div id="file-status" style="margin-top:6px;font-size:0.74rem;color:var(--color-success);text-align:center;min-height:16px;"></div>
       </div>
 
-      <!-- ── SECTION 3: Microsoft Graph OneDrive Cloud Browser ── -->
+      <!-- ── SECTION 3: Microsoft Graph OneDrive / SharePoint Connector ── -->
       <div style="background:rgba(0,0,0,0.2);border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:12px;">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;">
           <div>
-            <div style="font-size:0.8rem;font-weight:600;color:#e2e8f0;margin-bottom:3px;">Or Connect OneDrive Cloud</div>
+            <div style="font-size:0.8rem;font-weight:600;color:#e2e8f0;margin-bottom:3px;">Or Connect OneDrive / SharePoint Cloud</div>
             <div id="onedrive-cloud-status" style="font-size:0.72rem;color:var(--color-text-muted);">Checking Microsoft connection...</div>
           </div>
-          <button onclick="connectOneDriveCloud()" class="export-btn secondary" style="padding:6px 12px;font-size:0.78rem;white-space:nowrap;" id="onedrive-connect-btn">Connect OneDrive</button>
+          <button onclick="connectOneDriveCloud()" class="export-btn secondary" style="padding:6px 12px;font-size:0.78rem;white-space:nowrap;" id="onedrive-connect-btn">Connect Microsoft</button>
         </div>
         <div id="onedrive-cloud-browser" style="display:none;background:rgba(13,20,38,0.8);border:1px solid var(--border-color);border-radius:6px;padding:10px;">
+          <div style="background:rgba(0,0,0,0.22);border:1px solid rgba(255,255,255,0.07);border-radius:6px;padding:8px;margin-bottom:10px;">
+            <div style="font-size:0.76rem;color:#e2e8f0;font-weight:600;margin-bottom:6px;">Paste OneDrive or SharePoint file link</div>
+            <div style="display:flex;gap:6px;align-items:center;">
+              <input type="url" id="share-link-input" placeholder="https://... SharePoint or OneDrive .xlsx link" style="flex:1;padding:6px 10px;background:rgba(13,20,38,0.95);border:1px solid var(--border-color);border-radius:4px;color:#fff;font-size:0.76rem;outline:none;min-width:0;">
+              <button onclick="connectSharedWorkbookLink()" class="export-btn secondary" style="padding:6px 10px;font-size:0.74rem;white-space:nowrap;">Connect Link</button>
+            </div>
+            <div id="share-link-status" style="font-size:0.7rem;color:var(--color-text-muted);margin-top:5px;min-height:14px;">Sign in first, then paste a direct Excel workbook link.</div>
+          </div>
           <div style="display:flex;align-items:center;justify-content:space-between;font-size:0.74rem;color:#e2e8f0;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid rgba(255,255,255,0.08);">
             <span>Cloud path: <strong id="onedrive-path-display">/ (Root)</strong></span>
             <div style="display:flex;gap:8px;">

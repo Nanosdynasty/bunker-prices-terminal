@@ -1,4 +1,5 @@
 import os
+import base64
 import secrets
 import threading
 from datetime import date, datetime, timezone
@@ -238,6 +239,48 @@ def create_app(test_config=None):
         session.modified = True
         return jsonify(public_state())
 
+    @app.post("/api/select-shared-link")
+    def select_shared_link():
+        payload = request.get_json(silent=True) or {}
+        share_url = (payload.get("url") or "").strip()
+        if not share_url.startswith(("https://", "http://")):
+            raise AppError("Paste a valid OneDrive or SharePoint workbook link.", 400, "invalid_share_link")
+        token = graph_access_token()
+        share_id = encode_sharing_url(share_url)
+        metadata = graph_get_json(
+            f"/shares/{share_id}/driveItem?$select=id,name,eTag,lastModifiedDateTime,size,parentReference,file,folder,webUrl",
+            token,
+            prefer="redeemSharingLinkIfNecessary",
+        )
+        if "folder" in metadata:
+            raise AppError("That link points to a folder. Paste a direct .xlsx file link.", 415, "share_link_is_folder")
+        if not metadata.get("name", "").lower().endswith(".xlsx"):
+            raise AppError("Only standard .xlsx workbook links are supported.", 415, "unsupported_file")
+        content = graph_download_shared_workbook(share_id, token)
+        signature = graph_signature(metadata)
+        parent = metadata.get("parentReference", {}) or {}
+        session["selection"] = {
+            "source": "shared_link",
+            "share_id": share_id,
+            "drive_id": parent.get("driveId", ""),
+            "item_id": metadata.get("id", ""),
+            "filename": metadata.get("name", "Shared workbook.xlsx"),
+            "file_modified": metadata.get("lastModifiedDateTime"),
+            "observed_signature": signature,
+            "loaded_signature": None,
+            "sheet_names": workbook_sheet_names(content),
+            "worksheet": None,
+            "last_check": utc_now(),
+            "last_load": None,
+            "changed_detected": None,
+            "stale": False,
+            "error": None,
+            "preview": None,
+            "raw_matrix": None,
+        }
+        session.modified = True
+        return jsonify(public_state())
+
     @app.get("/api/folder")
     def list_folder():
         relative = request.args.get("path", "")
@@ -419,6 +462,15 @@ def read_workbook(path):
 
 
 def read_selected_workbook(selected):
+    if selected.get("source") == "shared_link":
+        token = graph_access_token()
+        metadata = graph_get_json(
+            f"/shares/{selected['share_id']}/driveItem?$select=id,name,eTag,lastModifiedDateTime,size,parentReference,file,folder,webUrl",
+            token,
+            prefer="redeemSharingLinkIfNecessary",
+        )
+        content = graph_download_shared_workbook(selected["share_id"], token)
+        return content, {"modified": metadata.get("lastModifiedDateTime"), "signature": graph_signature(metadata)}
     if selected.get("source") == "onedrive":
         token = graph_access_token()
         metadata = graph_get_json(f"/drives/{selected['drive_id']}/items/{selected['item_id']}", token)
@@ -430,6 +482,14 @@ def read_selected_workbook(selected):
 
 
 def selected_metadata(selected):
+    if selected.get("source") == "shared_link":
+        token = graph_access_token()
+        metadata = graph_get_json(
+            f"/shares/{selected['share_id']}/driveItem?$select=id,name,eTag,lastModifiedDateTime,size,parentReference,file,folder,webUrl",
+            token,
+            prefer="redeemSharingLinkIfNecessary",
+        )
+        return {"modified": metadata.get("lastModifiedDateTime"), "signature": graph_signature(metadata)}
     if selected.get("source") == "onedrive":
         token = graph_access_token()
         metadata = graph_get_json(f"/drives/{selected['drive_id']}/items/{selected['item_id']}", token)
@@ -441,6 +501,11 @@ def selected_metadata(selected):
 
 def graph_signature(metadata):
     return ":".join(str(metadata.get(key, "")) for key in ("eTag", "lastModifiedDateTime", "size"))
+
+
+def encode_sharing_url(url):
+    encoded = base64.urlsafe_b64encode(url.encode("utf-8")).decode("ascii").rstrip("=")
+    return f"u!{encoded}"
 
 
 def build_msal_app():
@@ -493,8 +558,11 @@ def graph_headers(token):
     return {"Authorization": f"Bearer {token}"}
 
 
-def graph_get_json(endpoint, token):
-    response = requests.get(f"{GRAPH_ROOT}{endpoint}", headers=graph_headers(token), timeout=20)
+def graph_get_json(endpoint, token, prefer=None):
+    headers = graph_headers(token)
+    if prefer:
+        headers["Prefer"] = prefer
+    response = requests.get(f"{GRAPH_ROOT}{endpoint}", headers=headers, timeout=20)
     if response.status_code == 401:
         raise AppError("Microsoft session expired. Connect OneDrive again.", 401, "microsoft_session_expired")
     if response.status_code == 403:
@@ -508,10 +576,18 @@ def graph_get_json(endpoint, token):
     return response.json()
 
 
+def graph_download_shared_workbook(share_id, token):
+    return graph_download_content(f"/shares/{share_id}/driveItem/content", token)
+
+
 def graph_download_workbook(drive_id, item_id, token):
+    return graph_download_content(f"/drives/{drive_id}/items/{item_id}/content", token)
+
+
+def graph_download_content(endpoint, token):
     from flask import current_app
     response = requests.get(
-        f"{GRAPH_ROOT}/drives/{drive_id}/items/{item_id}/content",
+        f"{GRAPH_ROOT}{endpoint}",
         headers=graph_headers(token),
         timeout=60,
         allow_redirects=True,

@@ -662,7 +662,11 @@ function updateSyncViewDOM(data) {
   if (allowedFolder) allowedFolder.textContent = data.configured_root || `C:\\Users\\deepak\\OneDrive\\onedrivebunker`;
   if (folderStatus) folderStatus.textContent = data.connected ? 'Available' : 'Unavailable';
 
-  if (metaConn) metaConn.textContent = selection.source === 'onedrive' ? 'OneDrive cloud file' : (selection.relative_path ? 'Direct local file' : 'Client file upload');
+  if (metaConn) {
+    metaConn.textContent = selection.source === 'shared_link'
+      ? 'OneDrive / SharePoint shared link'
+      : (selection.source === 'onedrive' ? 'OneDrive cloud file' : (selection.relative_path ? 'Direct local file' : 'Client file upload'));
+  }
   if (metaFilename) metaFilename.textContent = selection.filename || (currentSyncFile || 'Book 2.xlsx');
   if (metaSheet) metaSheet.textContent = selection.worksheet || (currentSyncSheet || 'Sheet1');
   if (metaModified) metaModified.textContent = selection.file_modified ? formatDisplayDate(selection.file_modified) : formatDisplayDate(new Date().toISOString());
@@ -871,6 +875,47 @@ async function loadOneDriveStatus() {
 
 function connectOneDriveCloud() {
   window.location.href = '/auth/connect';
+}
+
+async function connectSharedWorkbookLink() {
+  const input = document.getElementById('share-link-input');
+  const status = document.getElementById('share-link-status');
+  const url = input ? input.value.trim() : '';
+  if (!url) {
+    if (status) {
+      status.style.color = '#fca5a5';
+      status.textContent = 'Paste a OneDrive or SharePoint .xlsx file link first.';
+    }
+    return;
+  }
+  if (status) {
+    status.style.color = 'var(--color-primary)';
+    status.textContent = 'Connecting link through Microsoft Graph...';
+  }
+  try {
+    const data = await apiFetch('/api/select-shared-link', {
+      method: 'POST',
+      body: { url }
+    });
+    const sheets = data.selection?.sheet_names || [];
+    if (sheets.length === 0) throw new Error('No worksheets found in workbook.');
+    selectedFilePath = `shared-link:${data.selection.item_id || data.selection.filename}`;
+    const box = document.getElementById('sheet-select-box');
+    const select = document.getElementById('worksheet-dropdown');
+    if (select) {
+      select.innerHTML = sheets.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('');
+    }
+    if (box) box.style.display = 'block';
+    if (status) {
+      status.style.color = 'var(--color-success)';
+      status.textContent = `Connected "${data.selection.filename}". Select a worksheet below.`;
+    }
+  } catch (err) {
+    if (status) {
+      status.style.color = '#fca5a5';
+      status.textContent = err.message || 'Could not connect that workbook link.';
+    }
+  }
 }
 
 async function loadOneDriveFolder(driveId = '', itemId = 'root', label = '/ (Root)', pushStack = false) {

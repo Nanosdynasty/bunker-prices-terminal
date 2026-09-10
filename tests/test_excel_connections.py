@@ -90,7 +90,7 @@ def test_onedrive_file_can_be_selected_with_mocked_graph(tmp_path, monkeypatch):
     monkeypatch.setattr(
         module,
         "graph_get_json",
-        lambda endpoint, token: {
+        lambda endpoint, token, prefer=None: {
             "id": "item-id",
             "name": "cloud-prices.xlsx",
             "lastModifiedDateTime": "2026-09-09T09:00:00Z",
@@ -117,3 +117,59 @@ def test_onedrive_file_can_be_selected_with_mocked_graph(tmp_path, monkeypatch):
     assert loaded.status_code == 200
     assert selection["filename"] == "cloud-prices.xlsx"
     assert selection["preview"]["rows"][0][0]["display"] == "MGO"
+
+
+def test_sharing_url_is_encoded_for_graph():
+    encoded = module.encode_sharing_url("https://contoso.sharepoint.com/:x:/r/sites/team/prices.xlsx?d=abc")
+    assert encoded.startswith("u!")
+    assert "=" not in encoded
+    assert "/" not in encoded
+    assert "+" not in encoded
+
+
+def test_shared_link_file_can_be_selected_with_mocked_graph(tmp_path, monkeypatch):
+    client, _ = make_client(
+        tmp_path,
+        {
+            "MS_CLIENT_ID": "client-id",
+            "MS_CLIENT_SECRET": "client-secret",
+        },
+    )
+    token = csrf(client)
+
+    monkeypatch.setattr(module, "graph_access_token", lambda: "token")
+
+    def fake_graph_get_json(endpoint, token, prefer=None):
+        assert endpoint.startswith("/shares/u!")
+        assert prefer == "redeemSharingLinkIfNecessary"
+        return {
+            "id": "shared-item-id",
+            "name": "shared-prices.xlsx",
+            "lastModifiedDateTime": "2026-09-10T09:00:00Z",
+            "eTag": "shared-etag-1",
+            "size": 2345,
+            "parentReference": {"driveId": "drive-id"},
+            "file": {},
+        }
+
+    monkeypatch.setattr(module, "graph_get_json", fake_graph_get_json)
+    monkeypatch.setattr(module, "graph_download_shared_workbook", lambda share_id, token: workbook_bytes("SHARED"))
+
+    selected = client.post(
+        "/api/select-shared-link",
+        json={"url": "https://contoso.sharepoint.com/sites/team/Shared%20Documents/shared-prices.xlsx"},
+        headers={"X-CSRF-Token": token},
+    )
+    selection = selected.get_json()["selection"]
+    assert selected.status_code == 200
+    assert selection["source"] == "shared_link"
+    assert selection["filename"] == "shared-prices.xlsx"
+
+    loaded = client.post(
+        "/api/select-sheet",
+        json={"worksheet": "Prices"},
+        headers={"X-CSRF-Token": token},
+    )
+    selection = loaded.get_json()["selection"]
+    assert loaded.status_code == 200
+    assert selection["preview"]["rows"][0][0]["display"] == "SHARED"
