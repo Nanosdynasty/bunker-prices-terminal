@@ -12,7 +12,6 @@ pyinstaller --name "BunkerTerminal" --windowed --noconfirm ^
   --hidden-import "openpyxl" ^
   --hidden-import "webview" ^
   --hidden-import "flask" ^
-  --hidden-import "flask_cors" ^
   desktop_app.py
 
 echo.

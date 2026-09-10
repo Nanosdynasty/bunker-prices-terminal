@@ -197,8 +197,21 @@
                 <button onclick="triggerFileInput()" class="export-btn secondary" style="padding:8px 14px;font-size:0.78rem;white-space:nowrap;">
                   📂 Upload File
                 </button>
+                <button onclick="manualRefreshData()" class="export-btn secondary" style="padding:8px 14px;font-size:0.78rem;white-space:nowrap;background:rgba(0,242,254,0.15);color:var(--color-primary);border:1px solid rgba(0,242,254,0.3);cursor:pointer;font-weight:700;">
+                  🔄 Refresh Data
+                </button>
               </div>
               <input type="file" id="direct-file-input" accept=".xlsx,.xls,.csv" onchange="handleFileUpload(event)" style="display:none;">
+
+              <!-- Active File & Last Refreshed Bar -->
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:10px;padding-top:8px;border-top:1px dashed var(--border-color);font-size:0.78rem;font-family:'JetBrains Mono',monospace;flex-wrap:wrap;">
+                <div style="display:flex;align-items:center;gap:6px;color:var(--color-primary);font-weight:600;">
+                  📄 Active File / Source: <span id="active-file-display" style="color:var(--color-text-main);font-weight:bold;">Book 2.xlsx</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:6px;color:var(--color-text-muted);">
+                  🕒 Auto-refreshes every 30s | Last Refreshed: <span id="last-refreshed-time-display" style="color:var(--color-success);font-weight:bold;">Just now</span>
+                </div>
+              </div>
               <div id="path-sync-status" style="font-size:0.75rem;margin-top:6px;min-height:16px;font-family:'JetBrains Mono',monospace;"></div>
             </div>
 

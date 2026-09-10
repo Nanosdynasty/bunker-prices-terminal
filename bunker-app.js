@@ -791,6 +791,21 @@ async function confirmSheetSelection() {
   }
 }
 
+let lastRefreshTimestamp = new Date();
+let activeFileNameDisplay = 'Book 2.xlsx';
+
+function updateRefreshStateInfo(filename) {
+  lastRefreshTimestamp = new Date();
+  if (filename) activeFileNameDisplay = filename;
+  
+  const timeStr = lastRefreshTimestamp.toLocaleTimeString();
+  const timeEl = document.getElementById('last-refreshed-time-display');
+  if (timeEl) timeEl.textContent = timeStr;
+
+  const fileEl = document.getElementById('active-file-display');
+  if (fileEl) fileEl.textContent = activeFileNameDisplay;
+}
+
 async function pollRefreshSync() {
   try {
     const data = await apiFetch('/api/refresh', {
@@ -803,22 +818,52 @@ async function pollRefreshSync() {
       parseAndLoadRows(data.selection.raw_matrix, data.selection.worksheet);
       updateSyncHeaderTag(true, data.selection.filename, data.selection.worksheet);
     }
+    updateRefreshStateInfo(data.selection ? data.selection.filename : null);
   } catch (err) {
     // Silent catch on background sync polling
   }
 }
 
+async function manualRefreshData() {
+  const statusEl = document.getElementById('path-sync-status');
+  if (statusEl) {
+    statusEl.style.color = 'var(--color-primary)';
+    statusEl.textContent = '🔄 Refreshing data now...';
+  }
+  try {
+    const data = await apiFetch('/api/refresh', {
+      method: 'POST',
+      body: { force: true }
+    });
+    if (data && data.selection && data.selection.raw_matrix) {
+      parseAndLoadRows(data.selection.raw_matrix, data.selection.worksheet);
+      updateSyncHeaderTag(true, data.selection.filename, data.selection.worksheet);
+    }
+    updateRefreshStateInfo(data && data.selection ? data.selection.filename : null);
+    if (statusEl) {
+      statusEl.style.color = 'var(--color-success)';
+      statusEl.textContent = `🟢 Refreshed successfully at ${new Date().toLocaleTimeString()}`;
+    }
+  } catch (err) {
+    if (statusEl) {
+      statusEl.style.color = 'var(--color-danger)';
+      statusEl.textContent = `❌ Refresh failed: ${err.message}`;
+    }
+  }
+}
+
 function startSyncPolling() {
   if (syncTimer) clearInterval(syncTimer);
-  syncTimer = setInterval(pollRefreshSync, 5000);
+  syncTimer = setInterval(pollRefreshSync, 30000); // Auto-refresh every 30s
 }
 
 function updateSyncHeaderTag(active, filename, sheet) {
   const tag = document.getElementById('sync-status-tag');
   if (tag) {
     tag.style.display = active ? 'inline-block' : 'none';
-    tag.textContent = `🟢 Sync: ${filename} [${sheet}]`;
+    tag.textContent = `🟢 Sync: ${filename} [${sheet}] (30s)`;
   }
+  updateRefreshStateInfo(filename);
 }
 
 // ─── Excel Live View & Metadata Rendering ────────────────────────────────────
