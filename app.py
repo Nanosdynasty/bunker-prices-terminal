@@ -98,9 +98,45 @@ def create_app(test_config=None):
         )
         return response
 
+    def ensure_default_selection():
+        if not session.get("selection"):
+            try:
+                root = workbook_root()
+                if root.is_dir():
+                    target = root / "Book 2.xlsx"
+                    if not target.exists():
+                        files = [f for f in root.glob("*.xlsx") if f.is_file()]
+                        if files:
+                            target = files[0]
+                    if target.exists() and target.is_file():
+                        content, stat = read_workbook(target)
+                        names = workbook_sheet_names(content)
+                        sheet = names[0] if names else "Sheet1"
+                        raw_rows = workbook_raw_matrix(content, sheet)
+                        session["selection"] = {
+                            "relative_path": target.relative_to(root).as_posix(),
+                            "filename": target.name,
+                            "file_modified": modified_iso(stat),
+                            "observed_signature": file_signature(stat),
+                            "loaded_signature": file_signature(stat),
+                            "sheet_names": names,
+                            "worksheet": sheet,
+                            "last_check": utc_now(),
+                            "last_load": utc_now(),
+                            "changed_detected": False,
+                            "stale": False,
+                            "error": None,
+                            "preview": workbook_preview(content, sheet),
+                            "raw_matrix": raw_rows,
+                        }
+                        session.modified = True
+            except Exception:
+                pass
+
     @app.get("/")
     def index():
         session.setdefault("csrf_token", secrets.token_urlsafe(32))
+        ensure_default_selection()
         root = workbook_root()
         return render_template(
             "index.html", state=public_state(), csrf_token=session["csrf_token"],
@@ -114,6 +150,7 @@ def create_app(test_config=None):
     @app.get("/api/state")
     def api_state():
         session.setdefault("csrf_token", secrets.token_urlsafe(32))
+        ensure_default_selection()
         res = public_state()
         res["csrf_token"] = session["csrf_token"]
         return jsonify(res)

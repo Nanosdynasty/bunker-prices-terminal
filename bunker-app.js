@@ -920,7 +920,7 @@ async function triggerManualRefresh() {
       renderExcelSyncView();
     }
   } catch (err) {
-    alert('Refresh error: ' + err.message);
+    console.warn('Manual refresh notice:', err.message);
   }
 }
 
@@ -1353,12 +1353,21 @@ window.addEventListener('DOMContentLoaded', () => {
   renderPortList();
   renderNews();
 
-  // Auto-select Antwerp on load
+  // Auto-fetch backend initial state & auto-selected Excel file
+  apiFetch('/api/state').then(data => {
+    if (data && data.selection && data.selection.raw_matrix) {
+      parseAndLoadRows(data.selection.raw_matrix, data.selection.worksheet);
+      updateSyncHeaderTag(true, data.selection.filename, data.selection.worksheet);
+      startSyncPolling();
+    }
+  }).catch(() => {});
+
   setTimeout(() => {
-    selectPort(PORTS[0]);
-    document.getElementById('hud-loader').style.opacity = '0';
-    setTimeout(() => {
-      document.getElementById('hud-loader').style.display = 'none';
-    }, 500);
-  }, 800);
+    if (!activePort && PORTS.length > 0) selectPort(PORTS[0]);
+    const loader = document.getElementById('hud-loader');
+    if (loader) {
+      loader.style.opacity = '0';
+      setTimeout(() => { loader.style.display = 'none'; }, 500);
+    }
+  }, 600);
 });
