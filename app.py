@@ -68,6 +68,8 @@ def create_app(test_config=None):
         SESSION_COOKIE_SECURE=False,
         MAX_WORKBOOK_BYTES=int(os.getenv("MAX_WORKBOOK_MB", "50")) * 1024 * 1024,
         LOCAL_WORKBOOK_ROOT=configured_root,
+        TEMPLATES_AUTO_RELOAD=True,
+        SEND_FILE_MAX_AGE_DEFAULT=0,
         TESTING=False,
     )
     if test_config:
@@ -88,6 +90,9 @@ def create_app(test_config=None):
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "same-origin"
         response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
         response.headers["Content-Security-Policy"] = (
             "default-src 'self' 'unsafe-inline' 'unsafe-eval' https: data:; "
             "script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; "
@@ -295,6 +300,51 @@ def create_app(test_config=None):
             "preview": workbook_preview(content, sheet),
             "raw_matrix": raw_rows,
         }
+        session.modified = True
+        return jsonify(public_state())
+
+    @app.post("/api/upload-matrix")
+    def upload_matrix():
+        payload = request.get_json(silent=True) or {}
+        filename = payload.get("filename", "Uploaded_Workbook.xlsx")
+        worksheet = payload.get("worksheet", "Sheet1")
+        sheet_names = payload.get("sheet_names", [worksheet])
+        raw_matrix = payload.get("raw_matrix", [])
+
+        if not raw_matrix:
+            raise AppError("The uploaded file contains no data rows.", 400, "empty_matrix")
+
+        session["selection"] = {
+            "relative_path": filename,
+            "filename": filename,
+            "file_modified": utc_now(),
+            "observed_signature": f"upload:{len(raw_matrix)}",
+            "loaded_signature": f"upload:{len(raw_matrix)}",
+            "sheet_names": sheet_names,
+            "worksheet": worksheet,
+            "last_check": utc_now(),
+            "last_load": utc_now(),
+            "changed_detected": False,
+            "stale": False,
+            "error": None,
+            "preview": None,
+            "raw_matrix": raw_matrix,
+        }
+        session.modified = True
+        return jsonify(public_state())
+
+    @app.post("/api/clear-files")
+    def clear_files():
+        session.pop("selection", None)
+        root = workbook_root()
+        try:
+            for f in root.glob("OneDrive_Sheet*.xlsx"):
+                try:
+                    f.unlink()
+                except OSError:
+                    pass
+        except Exception:
+            pass
         session.modified = True
         return jsonify(public_state())
 

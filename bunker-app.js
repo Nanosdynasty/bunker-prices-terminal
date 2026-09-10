@@ -986,12 +986,18 @@ async function triggerManualRefresh() {
 
 async function disconnectLinkedFile() {
   try {
-    await apiFetch('/api/change-file', { method: 'POST' });
+    await apiFetch('/api/clear-files', { method: 'POST' });
     if (syncTimer) clearInterval(syncTimer);
     updateSyncHeaderTag(false);
+    currentSyncFile = '';
+    currentSyncSheet = '';
+    const statusText = document.getElementById('excel-sync-status-text');
+    if (statusText) statusText.textContent = 'Cleared file selection.';
+    const pathStatus = document.getElementById('path-sync-status');
+    if (pathStatus) pathStatus.textContent = '';
     renderExcelSyncView();
   } catch (err) {
-    console.warn('Disconnect error:', err);
+    console.warn('Clear files notice:', err.message);
   }
 }
 
@@ -1107,24 +1113,67 @@ function handleFileUpload(e) {
   const file = e.target.files[0];
   if (!file) return;
   const statusEl = document.getElementById('file-status');
+  const pathStatus = document.getElementById('path-sync-status');
   if (statusEl) statusEl.textContent = `📂 Reading "${file.name}"...`;
+  if (pathStatus) pathStatus.textContent = `📂 Reading "${file.name}"...`;
 
   const reader = new FileReader();
-  reader.onload = ev => {
+  reader.onload = async ev => {
     try {
-      const result = parseAndLoad(ev.target.result, file.name);
-      if (statusEl) statusEl.textContent = `✅ Loaded ${result.rows} rows from "${result.sheet}"`;
+      const wb = XLSX.read(ev.target.result, { type: 'array', cellDates: true });
+      let sheetName = wb.SheetNames[0];
+      const ws = wb.Sheets[sheetName];
+      const rawMatrix = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false });
+
+      const result = parseAndLoadRows(rawMatrix, sheetName);
+      currentSyncFile = file.name;
+      currentSyncSheet = sheetName;
+
+      // Sync with backend API if running Flask
+      try {
+        await apiFetch('/api/upload-matrix', {
+          method: 'POST',
+          body: {
+            filename: file.name,
+            worksheet: sheetName,
+            sheet_names: wb.SheetNames,
+            raw_matrix: rawMatrix
+          }
+        });
+      } catch (backendErr) {
+        console.warn('Backend matrix upload notice:', backendErr.message);
+      }
+
+      updateSyncHeaderTag(true, file.name, sheetName);
+      renderExcelSyncView();
+
+      const msg = `🟢 Loaded ${result.rows} rows from "${file.name}" [${sheetName}]`;
+      if (statusEl) statusEl.textContent = msg;
+      if (pathStatus) {
+        pathStatus.style.color = 'var(--color-success)';
+        pathStatus.textContent = msg;
+      }
       setTimeout(() => closeLinkModal(), 900);
     } catch(err) {
       if (statusEl) statusEl.textContent = '';
-      document.getElementById('link-error').innerHTML = `❌ <strong>Parse error:</strong> ${err.message}`;
-      document.getElementById('link-error').style.display = 'block';
+      if (pathStatus) {
+        pathStatus.style.color = 'var(--color-danger)';
+        pathStatus.textContent = `❌ Upload error: ${err.message}`;
+      }
+      const errBox = document.getElementById('link-error');
+      if (errBox) {
+        errBox.innerHTML = `❌ <strong>Parse error:</strong> ${err.message}`;
+        errBox.style.display = 'block';
+      }
     }
   };
   reader.onerror = () => {
     if (statusEl) statusEl.textContent = '';
-    document.getElementById('link-error').textContent = '❌ Could not read file. Please try again.';
-    document.getElementById('link-error').style.display = 'block';
+    const errBox = document.getElementById('link-error');
+    if (errBox) {
+      errBox.textContent = '❌ Could not read file. Please try again.';
+      errBox.style.display = 'block';
+    }
   };
   reader.readAsArrayBuffer(file);
 }
