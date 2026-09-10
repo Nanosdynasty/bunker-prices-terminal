@@ -16,6 +16,10 @@
   --color-text-main: #f3f4f6;
   --color-text-muted: #9ca3af;
 
+  --color-vlsfo: #38bdf8;
+  --color-hsfo: #ef4444;
+  --color-mgo: #00ff87;
+
   --shadow-glow: 0 0 15px rgba(0, 130, 240, 0.2);
   --shadow-glow-success: 0 0 15px rgba(0, 255, 135, 0.15);
   --shadow-glow-danger: 0 0 15px rgba(255, 75, 75, 0.15);
@@ -31,8 +35,18 @@ body.light-theme {
   --border-color-glow: rgba(0, 130, 240, 0.45);
   --color-text-main: #0f172a;
   --color-text-muted: #64748b;
+  --color-success: #16a34a;
+  --color-danger: #dc2626;
+  --color-primary: #0284c7;
+  
+  --color-vlsfo: #0284c7;
+  --color-hsfo: #dc2626;
+  --color-mgo: #16a34a;
+  
   background-image: none !important;
 }
+
+body.light-theme .brand-logo { filter: brightness(0); }
 
 body.light-theme header {
   background: #ffffff !important;
@@ -694,9 +708,9 @@ header {
   border-radius: 4px;
 }
 
-.card-fuel-tag.vlsfo { color: #38bdf8; background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.25); }
-.card-fuel-tag.hsfo  { color: #ef4444; background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.25); }
-.card-fuel-tag.mgo   { color: #00ff87; background: rgba(0, 255, 135, 0.12); border: 1px solid rgba(0, 255, 135, 0.25); }
+.card-fuel-tag.vlsfo { color: var(--color-vlsfo); background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.25); }
+.card-fuel-tag.hsfo  { color: var(--color-hsfo); background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.25); }
+.card-fuel-tag.mgo   { color: var(--color-mgo); background: rgba(0, 255, 135, 0.12); border: 1px solid rgba(0, 255, 135, 0.25); }
 
 .card-rate-val {
   font-family: 'JetBrains Mono', monospace;

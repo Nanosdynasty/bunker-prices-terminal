@@ -258,47 +258,51 @@ function rebuildChart() {
   const showHSFO  = document.getElementById('chk-hsfo').checked;
   const showMGO   = document.getElementById('chk-mgo').checked;
 
+  const cVlsfo = getComputedStyle(document.body).getPropertyValue('--color-vlsfo').trim() || '#38bdf8';
+  const cHsfo = getComputedStyle(document.body).getPropertyValue('--color-hsfo').trim() || '#ef4444';
+  const cMgo = getComputedStyle(document.body).getPropertyValue('--color-mgo').trim() || '#00ff87';
+
   const datasets = [];
   if (showVLSFO) {
     datasets.push({
       label: 'VLSFO ($/MT)',
       data: data.map(d => d.VLSFO),
-      borderColor: FUEL_COLORS.VLSFO,
+      borderColor: cVlsfo,
       backgroundColor: 'rgba(56, 189, 248, 0.08)',
       borderWidth: 2.2,
       pointRadius: data.length > 30 ? 0 : 3,
       pointHoverRadius: 5,
       tension: 0.35,
       fill: false,
-      pointBackgroundColor: FUEL_COLORS.VLSFO
+      pointBackgroundColor: cVlsfo
     });
   }
   if (showHSFO) {
     datasets.push({
       label: 'HSFO ($/MT)',
       data: data.map(d => d.HSFO),
-      borderColor: FUEL_COLORS.HSFO,
+      borderColor: cHsfo,
       backgroundColor: 'rgba(239, 68, 68, 0.08)',
       borderWidth: 2.2,
       pointRadius: data.length > 30 ? 0 : 3,
       pointHoverRadius: 5,
       tension: 0.35,
       fill: false,
-      pointBackgroundColor: FUEL_COLORS.HSFO
+      pointBackgroundColor: cHsfo
     });
   }
   if (showMGO) {
     datasets.push({
       label: 'MGO ($/MT)',
       data: data.map(d => d.MGO),
-      borderColor: FUEL_COLORS.MGO,
+      borderColor: cMgo,
       backgroundColor: 'rgba(0, 255, 135, 0.08)',
       borderWidth: 2.2,
       pointRadius: data.length > 30 ? 0 : 3,
       pointHoverRadius: 5,
       tension: 0.35,
       fill: false,
-      pointBackgroundColor: FUEL_COLORS.MGO
+      pointBackgroundColor: cMgo
     });
   }
 
@@ -431,6 +435,17 @@ function switchChartTab(tab) {
   if (bHeaderCard) {
     bHeaderCard.style.background = tab === 'card-view' ? 'var(--color-primary)' : 'rgba(0,242,254,0.12)';
     bHeaderCard.style.color = tab === 'card-view' ? '#fff' : '#00f2fe';
+  }
+
+  const bottomPanels = document.querySelector('.bottom-panels');
+  const tickerTape = document.querySelector('.ticker-tape-container');
+
+  if (tab === 'card-view') {
+    if (bottomPanels) bottomPanels.style.display = 'none';
+    if (tickerTape) tickerTape.style.display = 'none';
+  } else {
+    if (bottomPanels) bottomPanels.style.display = '';
+    if (tickerTape) tickerTape.style.display = '';
   }
 
   if (tab === 'historical') {

@@ -32,8 +32,8 @@
   <!-- Header -->
   <header>
     <div class="brand-hud" style="display:flex;align-items:center;gap:14px;">
-      <div style="display:flex;align-items:center;height:38px;border-radius:4px;overflow:hidden;background:#fff;padding:2px 6px;box-shadow:0 2px 8px rgba(0,0,0,0.4);">
-        <img src="logo.png" alt="Howe Robinson Partners" style="height:32px;width:auto;object-fit:contain;">
+      <div style="display:flex;align-items:center;height:38px;border-radius:4px;overflow:hidden;background:transparent;padding:2px 6px;">
+        <img class="brand-logo" src="logo.png" alt="Howe Robinson Partners" style="height:32px;width:auto;object-fit:contain;">
       </div>
       <h1 style="font-size:1.05rem;font-weight:700;color:#fff;letter-spacing:1px;text-transform:uppercase;margin:0;background:none;-webkit-text-fill-color:initial;text-shadow:none;">
         Bunker Prices Terminal
@@ -118,13 +118,13 @@
 
             <!-- Fuel Grade Checkboxes -->
             <div style="display:flex;align-items:center;gap:10px;font-size:0.74rem;">
-              <label style="display:flex;align-items:center;gap:4px;cursor:pointer;color:#38bdf8;font-weight:600;">
+              <label style="display:flex;align-items:center;gap:4px;cursor:pointer;color:var(--color-vlsfo);font-weight:600;">
                 <input type="checkbox" id="chk-vlsfo" checked onchange="rebuildChart()"> VLSFO
               </label>
-              <label style="display:flex;align-items:center;gap:4px;cursor:pointer;color:#ef4444;font-weight:600;">
+              <label style="display:flex;align-items:center;gap:4px;cursor:pointer;color:var(--color-hsfo);font-weight:600;">
                 <input type="checkbox" id="chk-hsfo" checked onchange="rebuildChart()"> HSFO
               </label>
-              <label style="display:flex;align-items:center;gap:4px;cursor:pointer;color:#00ff87;font-weight:600;">
+              <label style="display:flex;align-items:center;gap:4px;cursor:pointer;color:var(--color-mgo);font-weight:600;">
                 <input type="checkbox" id="chk-mgo" checked onchange="rebuildChart()"> MGO
               </label>
             </div>
@@ -305,13 +305,13 @@
 
               <div style="font-size:0.72rem;font-weight:700;color:var(--color-primary);margin:8px 0 4px;">SELECT FUEL GRADES:</div>
               <div style="display:flex;gap:12px;margin-bottom:10px;">
-                <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:0.74rem;color:#38bdf8;font-weight:600;">
+                <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:0.74rem;color:var(--color-vlsfo);font-weight:600;">
                   <input type="checkbox" class="chk-fuel" value="VLSFO" checked> VLSFO
                 </label>
-                <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:0.74rem;color:#ef4444;font-weight:600;">
+                <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:0.74rem;color:var(--color-hsfo);font-weight:600;">
                   <input type="checkbox" class="chk-fuel" value="HSFO" checked> HSFO
                 </label>
-                <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:0.74rem;color:#00ff87;font-weight:600;">
+                <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:0.74rem;color:var(--color-mgo);font-weight:600;">
                   <input type="checkbox" class="chk-fuel" value="MGO" checked> MGO
                 </label>
               </div>
