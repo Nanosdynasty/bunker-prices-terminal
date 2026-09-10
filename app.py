@@ -226,6 +226,78 @@ def create_app(test_config=None):
         except Exception as exc:
             raise AppError(f"Failed to fetch OneDrive file from URL: {str(exc)}", 502, "fetch_failed") from exc
 
+    @app.post("/api/connect-path")
+    def connect_path():
+        raw_path = (request.get_json(silent=True) or {}).get("path", "").strip()
+        if not raw_path:
+            raise AppError("Please provide a folder path or URL.", 400, "missing_path")
+
+        if raw_path.startswith("http://") or raw_path.startswith("https://"):
+            request.json["url"] = raw_path
+            return connect_url()
+
+        p = Path(raw_path).expanduser().resolve()
+        target_file = None
+        root_dir = workbook_root()
+
+        if p.is_file() and p.suffix.lower() == ".xlsx":
+            target_file = p
+        elif p.is_dir():
+            target_file = p / "Book 2.xlsx"
+            if not target_file.exists():
+                xlsx_files = [f for f in p.glob("*.xlsx") if f.is_file()]
+                if xlsx_files:
+                    target_file = xlsx_files[0]
+                else:
+                    raise AppError(f"No .xlsx files found in directory: {raw_path}", 404, "no_excel_files")
+        else:
+            # Try matching inside configured workbook root
+            try:
+                cand = safe_path(raw_path, require_exists=True)
+                if cand.is_file() and cand.suffix.lower() == ".xlsx":
+                    target_file = cand
+                elif cand.is_dir():
+                    xlsx_files = [f for f in cand.glob("*.xlsx") if f.is_file()]
+                    if xlsx_files:
+                        target_file = xlsx_files[0]
+            except Exception:
+                pass
+
+        if not target_file or not target_file.exists():
+            raise AppError(
+                f"Folder or file path could not be found: '{raw_path}'. If using cloud deployment, please upload your Excel file or paste a OneDrive share URL.",
+                404, "path_not_found"
+            )
+
+        content, stat = read_workbook(target_file)
+        names = workbook_sheet_names(content)
+        sheet = names[0] if names else "Sheet1"
+        raw_rows = workbook_raw_matrix(content, sheet)
+
+        try:
+            rel_path = target_file.relative_to(root_dir).as_posix()
+        except ValueError:
+            rel_path = target_file.name
+
+        session["selection"] = {
+            "relative_path": rel_path,
+            "filename": target_file.name,
+            "file_modified": modified_iso(stat),
+            "observed_signature": file_signature(stat),
+            "loaded_signature": file_signature(stat),
+            "sheet_names": names,
+            "worksheet": sheet,
+            "last_check": utc_now(),
+            "last_load": utc_now(),
+            "changed_detected": False,
+            "stale": False,
+            "error": None,
+            "preview": workbook_preview(content, sheet),
+            "raw_matrix": raw_rows,
+        }
+        session.modified = True
+        return jsonify(public_state())
+
 
     @app.post("/api/select-sheet")
     def select_sheet():

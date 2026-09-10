@@ -39,12 +39,12 @@
         Bunker Prices Terminal
       </h1>
       <span class="status-tag">Live Feed</span>
-      <button id="header-card-view-btn" class="header-action-tag" onclick="switchChartTab('card-view')" style="cursor:pointer;background:rgba(0,242,254,0.12);color:#00f2fe;border:1px solid rgba(0,242,254,0.35);padding:3px 10px;border-radius:4px;font-size:0.75rem;font-weight:700;display:inline-flex;align-items:center;gap:4px;transition:all 0.2s;">
-        🎴 Card View
-      </button>
       <span id="sync-status-tag" class="status-tag" style="background:rgba(0,255,135,0.15);color:var(--color-success);border:1px solid rgba(0,255,135,0.3);display:none;">🟢 Auto Sync Active</span>
     </div>
     <div style="display:flex;align-items:center;gap:12px;">
+      <button id="theme-toggle-btn" class="theme-toggle-btn" onclick="toggleTheme()" style="cursor:pointer;background:rgba(255,255,255,0.08);color:var(--color-text-main);border:1px solid var(--border-color);padding:4px 10px;border-radius:5px;font-size:0.75rem;font-weight:600;display:inline-flex;align-items:center;gap:4px;transition:all 0.2s;">
+        ☀️ Light Mode
+      </button>
       <div id="market-time" class="market-time">SYS_TIME: --:--:--</div>
     </div>
   </header>
@@ -180,21 +180,26 @@
 
           <!-- Excel Live Spreadsheet View Container -->
           <div id="excel-sync-view-container">
-            <!-- ⚡ 1-Click File Selection & Auto-Sync Header Box -->
-            <div style="background:linear-gradient(135deg, rgba(0,242,254,0.08), rgba(0,130,240,0.15));border:1px dashed var(--color-primary);border-radius:8px;padding:12px 16px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
-              <div>
-                <div style="font-size:0.88rem;font-weight:700;color:#fff;">⚡ 1-Click Select & Upload File</div>
-                <div style="font-size:0.74rem;color:var(--color-text-muted);">Choose any local Excel file (.xlsx, .csv) or connect directly to your OneDrive folder</div>
-              </div>
-              <div style="display:flex;gap:8px;">
-                <button class="export-btn" onclick="triggerFileInput()" style="padding:7px 16px;font-size:0.78rem;font-weight:700;background:var(--color-primary);color:#fff;display:inline-flex;align-items:center;gap:5px;box-shadow:0 2px 10px rgba(0,130,240,0.4);">
-                  📂 Choose Any File (.xlsx, .csv)
+            <!-- 📂 Paste Folder Path / Link Sync Bar -->
+            <div style="background:rgba(13,20,38,0.85);border:1px solid var(--color-primary);border-radius:8px;padding:14px 16px;margin-bottom:12px;">
+              <label style="font-size:0.86rem;font-weight:700;color:var(--color-text-main);display:block;margin-bottom:6px;">
+                🔗 Paste OneDrive Link or Folder Path:
+              </label>
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <input type="text" id="folder-path-input" 
+                       placeholder="Paste folder path (e.g. C:\Users\deepak\OneDrive\onedrivebunker) or OneDrive URL..." 
+                       value="C:\Users\deepak\OneDrive\onedrivebunker" 
+                       style="flex:1;min-width:260px;padding:8px 12px;background:rgba(6,9,19,0.8);border:1px solid var(--border-color);border-radius:5px;color:var(--color-text-main);font-family:'JetBrains Mono',monospace;font-size:0.8rem;outline:none;"
+                       onkeydown="if(event.key==='Enter') syncFromPathInput()">
+                <button onclick="syncFromPathInput()" class="export-btn" style="padding:8px 18px;font-size:0.8rem;font-weight:700;background:var(--color-primary);color:#fff;white-space:nowrap;box-shadow:0 2px 10px rgba(0,130,240,0.4);">
+                  ⚡ Sync & Load Data
                 </button>
-                <button class="export-btn secondary" onclick="openLinkModal()" style="padding:7px 14px;font-size:0.78rem;">
-                  🔗 Browse Folder / Paste URL
+                <button onclick="triggerFileInput()" class="export-btn secondary" style="padding:8px 14px;font-size:0.78rem;white-space:nowrap;">
+                  📂 Upload File
                 </button>
               </div>
               <input type="file" id="direct-file-input" accept=".xlsx,.xls,.csv" onchange="handleFileUpload(event)" style="display:none;">
+              <div id="path-sync-status" style="font-size:0.75rem;margin-top:6px;min-height:16px;font-family:'JetBrains Mono',monospace;"></div>
             </div>
 
             <!-- Top Status Banner -->

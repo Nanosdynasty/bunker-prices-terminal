@@ -464,6 +464,66 @@ function switchChartTab(tab) {
   }
 }
 
+// ─── Theme Toggle ────────────────────────────────────────────────────────────
+let currentTheme = 'dark';
+function toggleTheme() {
+  currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
+  document.body.classList.toggle('light-theme', currentTheme === 'light');
+  const btn = document.getElementById('theme-toggle-btn');
+  if (btn) {
+    btn.innerHTML = currentTheme === 'light' ? '🌙 Dark Mode' : '☀️ Light Mode';
+  }
+  if (bunkerChart) rebuildChart();
+}
+
+// ─── 📂 Folder Path & Link Sync ──────────────────────────────────────────────
+async function syncFromPathInput() {
+  const input = document.getElementById('folder-path-input');
+  const path = input ? input.value.trim() : '';
+  const statusEl = document.getElementById('path-sync-status');
+
+  if (!path) {
+    if (statusEl) {
+      statusEl.style.color = 'var(--color-danger)';
+      statusEl.textContent = '❌ Please paste a valid folder path or OneDrive link.';
+    }
+    return;
+  }
+
+  if (statusEl) {
+    statusEl.style.color = 'var(--color-primary)';
+    statusEl.textContent = '⚡ Connecting & syncing path...';
+  }
+
+  try {
+    const data = await apiFetch('/api/connect-path', {
+      method: 'POST',
+      body: JSON.stringify({ path })
+    });
+
+    if (data && data.selection && data.selection.raw_matrix) {
+      parseAndLoadRows(data.selection.raw_matrix, data.selection.worksheet);
+      updateSyncHeaderTag(true, data.selection.filename, data.selection.worksheet);
+      if (statusEl) {
+        statusEl.style.color = 'var(--color-success)';
+        statusEl.textContent = `🟢 Synced "${data.selection.filename}" [${data.selection.worksheet}] (${data.selection.raw_matrix.length} rows loaded)`;
+      }
+      renderExcelSyncView();
+      startSyncPolling();
+    } else {
+      if (statusEl) {
+        statusEl.style.color = 'var(--color-success)';
+        statusEl.textContent = '🟢 Folder path connected successfully.';
+      }
+    }
+  } catch (err) {
+    if (statusEl) {
+      statusEl.style.color = 'var(--color-danger)';
+      statusEl.textContent = `❌ Sync error: ${err.message}`;
+    }
+  }
+}
+
 // ─── 🎴 Card View Rendering ──────────────────────────────────────────────────
 let selectedCardGradeFilter = 'ALL';
 
