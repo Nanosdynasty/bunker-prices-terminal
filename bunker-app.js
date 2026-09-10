@@ -413,35 +413,156 @@ function switchChartTab(tab) {
   currentChartTab = tab;
   const hist = document.getElementById('historical-chart-container');
   const tv   = document.getElementById('tradingview-chart-container');
+  const cardView = document.getElementById('card-view-container');
   const excelView = document.getElementById('excel-sync-view-container');
   const sliderBox = document.getElementById('chart-slider-container');
   
   const bHist = document.getElementById('tab-btn-historical');
   const bTv = document.getElementById('tab-btn-tradingview');
+  const bCard = document.getElementById('tab-btn-card-view');
+  const bHeaderCard = document.getElementById('header-card-view-btn');
   const bExcel = document.getElementById('tab-btn-excel-sync');
 
   if (bHist) bHist.classList.toggle('active', tab === 'historical');
   if (bTv) bTv.classList.toggle('active', tab === 'tradingview');
+  if (bCard) bCard.classList.toggle('active', tab === 'card-view');
   if (bExcel) bExcel.classList.toggle('active', tab === 'excel-sync');
+
+  if (bHeaderCard) {
+    bHeaderCard.style.background = tab === 'card-view' ? 'var(--color-primary)' : 'rgba(0,242,254,0.12)';
+    bHeaderCard.style.color = tab === 'card-view' ? '#fff' : '#00f2fe';
+  }
 
   if (tab === 'historical') {
     hist.style.display = 'block';
     tv.style.display = 'none';
+    if (cardView) cardView.style.display = 'none';
     if (excelView) excelView.style.display = 'none';
     sliderBox.style.display = 'flex';
     rebuildChart();
   } else if (tab === 'tradingview') {
     hist.style.display = 'none';
     tv.style.display = 'block';
+    if (cardView) cardView.style.display = 'none';
     if (excelView) excelView.style.display = 'none';
     sliderBox.style.display = 'none';
     buildTradingViewWidget();
+  } else if (tab === 'card-view') {
+    hist.style.display = 'none';
+    tv.style.display = 'none';
+    if (cardView) cardView.style.display = 'block';
+    if (excelView) excelView.style.display = 'none';
+    sliderBox.style.display = 'none';
+    renderCardView();
   } else if (tab === 'excel-sync') {
     hist.style.display = 'none';
     tv.style.display = 'none';
+    if (cardView) cardView.style.display = 'none';
     if (excelView) excelView.style.display = 'block';
     sliderBox.style.display = 'none';
     renderExcelSyncView();
+  }
+}
+
+// ─── 🎴 Card View Rendering ──────────────────────────────────────────────────
+let selectedCardGradeFilter = 'ALL';
+
+function filterCardGrade(grade, element) {
+  selectedCardGradeFilter = grade;
+  const tabs = document.querySelectorAll('[data-card-grade]');
+  tabs.forEach(t => t.classList.remove('active'));
+  if (element) element.classList.add('active');
+  renderCardView();
+}
+
+function triggerFileInput() {
+  const fileInput = document.getElementById('direct-file-input');
+  if (fileInput) fileInput.click();
+}
+
+function renderCardView() {
+  const container = document.getElementById('bunker-cards-grid');
+  if (!container) return;
+
+  const searchInput = document.getElementById('card-search-input');
+  const query = searchInput ? searchInput.value.trim().toLowerCase() : '';
+
+  const portsToRender = PORTS.filter(p => {
+    if (!query) return true;
+    return p.name.toLowerCase().includes(query) || (p.ticker && p.ticker.toLowerCase().includes(query)) || (p.region && p.region.toLowerCase().includes(query));
+  });
+
+  if (portsToRender.length === 0) {
+    container.innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:40px;color:var(--color-text-muted);font-size:0.88rem;">No port cards match your search query.</div>`;
+    return;
+  }
+
+  container.innerHTML = portsToRender.map(port => {
+    const stats = portStats(port.name);
+    
+    const grades = [];
+    if (selectedCardGradeFilter === 'ALL' || selectedCardGradeFilter === 'VLSFO') {
+      grades.push({ name: 'VLSFO', price: stats.VLSFO, chg: stats.chg, pct: stats.pct, prev: stats.prev });
+    }
+    if (selectedCardGradeFilter === 'ALL' || selectedCardGradeFilter === 'HSFO') {
+      const hChg = stats.chg * 0.9;
+      const hPct = stats.pct * 0.9;
+      grades.push({ name: 'HSFO', price: stats.HSFO, chg: hChg, pct: hPct, prev: stats.HSFO - hChg });
+    }
+    if (selectedCardGradeFilter === 'ALL' || selectedCardGradeFilter === 'MGO') {
+      const mChg = stats.chg * 1.1;
+      const mPct = stats.pct * 1.1;
+      grades.push({ name: 'MGO', price: stats.MGO, chg: mChg, pct: mPct, prev: stats.MGO - mChg });
+    }
+
+    const isActive = activePort && activePort.name === port.name;
+
+    return `
+      <div class="port-bunker-card ${isActive ? 'active-card' : ''}" style="${isActive ? 'border-color:var(--color-primary);box-shadow:0 0 18px rgba(0,130,240,0.35);' : ''}">
+        <div class="card-port-header">
+          <div>
+            <div class="card-port-name">
+              <span>⚓ ${port.name.toUpperCase()}</span>
+            </div>
+            <div class="card-port-meta">${port.ticker ? port.ticker + 'VLSFOSPT' : 'BUNKER'} | ${port.region || 'Europe'}</div>
+          </div>
+          <span style="font-size:0.68rem;font-family:'JetBrains Mono',monospace;padding:2px 6px;border-radius:4px;background:rgba(0,255,135,0.12);color:var(--color-success);border:1px solid rgba(0,255,135,0.3);font-weight:600;">🟢 LIVE</span>
+        </div>
+
+        <div class="card-rates-list">
+          ${grades.map(g => {
+            const isUp = g.chg >= 0;
+            const tagClass = g.name.toLowerCase();
+            return `
+              <div class="card-rate-row">
+                <div style="display:flex;align-items:center;gap:6px;">
+                  <span class="card-fuel-tag ${tagClass}">${g.name}</span>
+                  <span class="card-rate-val">$${g.price.toFixed(2)}</span>
+                </div>
+                <div style="text-align:right;">
+                  <div class="card-rate-change ${isUp ? 'up' : 'down'}">
+                    ${isUp ? '▲ +' : '▼ '}${g.chg.toFixed(2)} (${isUp ? '+' : ''}${g.pct.toFixed(2)}%)
+                  </div>
+                  <div style="font-size:0.64rem;color:var(--color-text-muted);margin-top:2px;">Close: $${g.prev.toFixed(2)}</div>
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+
+        <button class="card-footer-btn" onclick="selectPortFromCard('${port.name}')">
+          📊 View Performance Chart & Analytics
+        </button>
+      </div>
+    `;
+  }).join('');
+}
+
+function selectPortFromCard(portName) {
+  const port = PORTS.find(p => p.name === portName);
+  if (port) {
+    selectPort(port);
+    switchChartTab('historical');
   }
 }
 
@@ -1090,6 +1211,7 @@ function parseAndLoadRows(rows, sheetName) {
   if (activePort) selectPort(activePort);
   else if (PORTS.length > 0) selectPort(PORTS[0]);
   buildTickerTape();
+  if (currentChartTab === 'card-view') renderCardView();
 
   return { rows: dataRows.length, sheet: sheetName };
 }

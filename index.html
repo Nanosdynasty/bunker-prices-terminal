@@ -39,13 +39,12 @@
         Bunker Prices Terminal
       </h1>
       <span class="status-tag">Live Feed</span>
+      <button id="header-card-view-btn" class="header-action-tag" onclick="switchChartTab('card-view')" style="cursor:pointer;background:rgba(0,242,254,0.12);color:#00f2fe;border:1px solid rgba(0,242,254,0.35);padding:3px 10px;border-radius:4px;font-size:0.75rem;font-weight:700;display:inline-flex;align-items:center;gap:4px;transition:all 0.2s;">
+        🎴 Card View
+      </button>
       <span id="sync-status-tag" class="status-tag" style="background:rgba(0,255,135,0.15);color:var(--color-success);border:1px solid rgba(0,255,135,0.3);display:none;">🟢 Auto Sync Active</span>
     </div>
     <div style="display:flex;align-items:center;gap:12px;">
-      <button class="link-btn" onclick="openLinkModal()">
-        <svg viewBox="0 0 24 24" style="fill:currentColor;width:14px;height:14px;"><path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"/></svg>
-        Link / Upload File
-      </button>
       <div id="market-time" class="market-time">SYS_TIME: --:--:--</div>
     </div>
   </header>
@@ -136,10 +135,11 @@
               <span id="chart-range-label" style="font-family:'JetBrains Mono',monospace;font-weight:bold;color:var(--color-primary);min-width:60px;">TODAY</span>
             </div>
 
-            <!-- Historical / TradingView / Link & Upload File Tabs -->
+            <!-- Historical / TradingView / Card View / Link & Upload File Tabs -->
             <div class="chart-tabs">
               <button class="chart-tab-btn active" id="tab-btn-historical" onclick="switchChartTab('historical')">Historical</button>
               <button class="chart-tab-btn" id="tab-btn-tradingview" onclick="switchChartTab('tradingview')">Technical</button>
+              <button class="chart-tab-btn" id="tab-btn-card-view" onclick="switchChartTab('card-view')">🎴 Card View</button>
               <button class="chart-tab-btn" id="tab-btn-excel-sync" onclick="switchChartTab('excel-sync')">📄 Link / Upload File</button>
             </div>
           </div>
@@ -153,8 +153,50 @@
           <!-- TradingView Widget Container -->
           <div id="tradingview-chart-container"></div>
           
+          <!-- Card View Container -->
+          <div id="card-view-container" style="display:none;padding:6px 2px;">
+            <!-- Control Bar -->
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;background:rgba(13,20,38,0.7);padding:10px 14px;border-radius:6px;border:1px solid var(--border-color);flex-wrap:wrap;">
+              <div>
+                <h3 style="margin:0;font-size:0.92rem;color:var(--color-primary);letter-spacing:0.5px;text-transform:uppercase;">🎴 Port & Area Bunker Cards</h3>
+                <div style="font-size:0.72rem;color:var(--color-text-muted);">Live fuel rates & daily price variations across all ports in your linked Excel sheet</div>
+              </div>
+              <div style="display:flex;align-items:center;gap:10px;">
+                <div class="search-box" style="width:190px;margin:0;">
+                  <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+                  <input type="text" id="card-search-input" placeholder="Search cards..." oninput="renderCardView()">
+                </div>
+                <div class="category-tabs" style="margin:0;">
+                  <span class="category-tab active" data-card-grade="ALL" onclick="filterCardGrade('ALL', this)">All</span>
+                  <span class="category-tab" data-card-grade="VLSFO" onclick="filterCardGrade('VLSFO', this)">VLSFO</span>
+                  <span class="category-tab" data-card-grade="HSFO" onclick="filterCardGrade('HSFO', this)">HSFO</span>
+                  <span class="category-tab" data-card-grade="MGO" onclick="filterCardGrade('MGO', this)">MGO</span>
+                </div>
+              </div>
+            </div>
+            <!-- Cards Grid -->
+            <div id="bunker-cards-grid" class="cards-grid"></div>
+          </div>
+
           <!-- Excel Live Spreadsheet View Container -->
           <div id="excel-sync-view-container">
+            <!-- ⚡ 1-Click File Selection & Auto-Sync Header Box -->
+            <div style="background:linear-gradient(135deg, rgba(0,242,254,0.08), rgba(0,130,240,0.15));border:1px dashed var(--color-primary);border-radius:8px;padding:12px 16px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+              <div>
+                <div style="font-size:0.88rem;font-weight:700;color:#fff;">⚡ 1-Click Select & Upload File</div>
+                <div style="font-size:0.74rem;color:var(--color-text-muted);">Choose any local Excel file (.xlsx, .csv) or connect directly to your OneDrive folder</div>
+              </div>
+              <div style="display:flex;gap:8px;">
+                <button class="export-btn" onclick="triggerFileInput()" style="padding:7px 16px;font-size:0.78rem;font-weight:700;background:var(--color-primary);color:#fff;display:inline-flex;align-items:center;gap:5px;box-shadow:0 2px 10px rgba(0,130,240,0.4);">
+                  📂 Choose Any File (.xlsx, .csv)
+                </button>
+                <button class="export-btn secondary" onclick="openLinkModal()" style="padding:7px 14px;font-size:0.78rem;">
+                  🔗 Browse Folder / Paste URL
+                </button>
+              </div>
+              <input type="file" id="direct-file-input" accept=".xlsx,.xls,.csv" onchange="handleFileUpload(event)" style="display:none;">
+            </div>
+
             <!-- Top Status Banner -->
             <div id="excel-sync-status-banner" style="padding:8px 12px;background:rgba(0,255,135,0.12);border:1px solid rgba(0,255,135,0.3);border-radius:6px;color:var(--color-success);font-size:0.82rem;font-weight:600;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;">
               <span id="excel-sync-status-text">Worksheet loaded.</span>
