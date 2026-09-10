@@ -479,7 +479,7 @@ function toggleTheme() {
 // ─── 📂 Folder Path & Link Sync ──────────────────────────────────────────────
 async function syncFromPathInput() {
   const input = document.getElementById('folder-path-input');
-  const path = input ? input.value.trim() : '';
+  const path = input ? input.value.trim().replace(/^["']|["']$/g, '') : '';
   const statusEl = document.getElementById('path-sync-status');
 
   if (!path) {

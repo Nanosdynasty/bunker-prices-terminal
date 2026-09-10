@@ -202,79 +202,7 @@
               <div id="path-sync-status" style="font-size:0.75rem;margin-top:6px;min-height:16px;font-family:'JetBrains Mono',monospace;"></div>
             </div>
 
-            <!-- Top Status Banner -->
-            <div id="excel-sync-status-banner" style="padding:8px 12px;background:rgba(0,255,135,0.12);border:1px solid rgba(0,255,135,0.3);border-radius:6px;color:var(--color-success);font-size:0.82rem;font-weight:600;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;">
-              <span id="excel-sync-status-text">Worksheet loaded.</span>
-              <span id="excel-sync-time-badge" style="font-size:0.74rem;font-weight:400;opacity:0.85;">Updated --:--:--</span>
-            </div>
 
-            <!-- Allowed Folder & Folder Status (Top Row Cards) -->
-            <div style="display:grid;grid-template-columns:2fr 1fr;gap:10px;margin-bottom:10px;">
-              <div style="background:rgba(13,20,38,0.7);border:1px solid var(--border-color);border-radius:6px;padding:8px 12px;">
-                <div style="font-size:0.68rem;color:var(--color-text-muted);margin-bottom:2px;">Allowed folder</div>
-                <div id="excel-allowed-folder" style="font-size:0.8rem;font-family:'JetBrains Mono',monospace;color:#fff;word-break:break-all;">C:\Users\deepak\OneDrive\onedrivebunker</div>
-              </div>
-              <div style="background:rgba(13,20,38,0.7);border:1px solid var(--border-color);border-radius:6px;padding:8px 12px;">
-                <div style="font-size:0.68rem;color:var(--color-text-muted);margin-bottom:2px;">Folder status</div>
-                <div id="excel-folder-status" style="font-size:0.8rem;font-weight:600;color:var(--color-success);">Available</div>
-              </div>
-            </div>
-
-            <!-- Action Buttons -->
-            <div style="display:flex;gap:8px;margin-bottom:10px;">
-              <button class="export-btn secondary" onclick="disconnectLinkedFile()" style="padding:5px 14px;font-size:0.76rem;">Clear Linked File Data</button>
-            </div>
-
-            <!-- Connection Metadata Grid Cards -->
-            <div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:8px;margin-bottom:12px;">
-              <div style="background:rgba(13,20,38,0.7);border:1px solid var(--border-color);border-radius:6px;padding:8px 10px;">
-                <div style="font-size:0.68rem;color:var(--color-text-muted);margin-bottom:2px;">Connection</div>
-                <div id="excel-meta-connection" style="font-size:0.8rem;color:#fff;">Direct local file</div>
-              </div>
-              <div style="background:rgba(13,20,38,0.7);border:1px solid var(--border-color);border-radius:6px;padding:8px 10px;">
-                <div style="font-size:0.68rem;color:var(--color-text-muted);margin-bottom:2px;">File</div>
-                <div id="excel-meta-filename" style="font-size:0.8rem;color:#fff;font-weight:700;">Book 2.xlsx</div>
-              </div>
-              <div style="background:rgba(13,20,38,0.7);border:1px solid var(--border-color);border-radius:6px;padding:8px 10px;">
-                <div style="font-size:0.68rem;color:var(--color-text-muted);margin-bottom:2px;">Worksheet</div>
-                <div id="excel-meta-worksheet" style="font-size:0.8rem;color:#fff;font-weight:700;">Sheet1</div>
-              </div>
-
-              <div style="background:rgba(13,20,38,0.7);border:1px solid var(--border-color);border-radius:6px;padding:8px 10px;">
-                <div style="font-size:0.68rem;color:var(--color-text-muted);margin-bottom:2px;">File modified</div>
-                <div id="excel-meta-modified" style="font-size:0.76rem;font-family:'JetBrains Mono',monospace;color:#fff;">--/--/----, --:--:--</div>
-              </div>
-              <div style="background:rgba(13,20,38,0.7);border:1px solid var(--border-color);border-radius:6px;padding:8px 10px;">
-                <div style="font-size:0.68rem;color:var(--color-text-muted);margin-bottom:2px;">Last successful check</div>
-                <div id="excel-meta-last-check" style="font-size:0.76rem;font-family:'JetBrains Mono',monospace;color:#fff;">--/--/----, --:--:--</div>
-              </div>
-              <div style="background:rgba(13,20,38,0.7);border:1px solid var(--border-color);border-radius:6px;padding:8px 10px;">
-                <div style="font-size:0.68rem;color:var(--color-text-muted);margin-bottom:2px;">Last successful data load</div>
-                <div id="excel-meta-last-load" style="font-size:0.76rem;font-family:'JetBrains Mono',monospace;color:#fff;">--/--/----, --:--:--</div>
-              </div>
-
-              <div style="background:rgba(13,20,38,0.7);border:1px solid var(--border-color);border-radius:6px;padding:8px 10px;">
-                <div style="font-size:0.68rem;color:var(--color-text-muted);margin-bottom:2px;">Changed workbook detected</div>
-                <div id="excel-meta-changed" style="font-size:0.8rem;color:#fff;">No</div>
-              </div>
-              <div style="background:rgba(13,20,38,0.7);border:1px solid var(--border-color);border-radius:6px;padding:8px 10px;grid-column:span 2;">
-                <div style="font-size:0.68rem;color:var(--color-text-muted);margin-bottom:2px;">Preview</div>
-                <div id="excel-meta-preview-status" style="font-size:0.8rem;color:#fff;">Current at last check</div>
-              </div>
-            </div>
-
-            <!-- Worksheet Controls & Auto-Refresh Checkbox -->
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;flex-wrap:wrap;gap:8px;">
-              <div style="display:flex;align-items:center;gap:8px;">
-                <span style="font-size:0.78rem;color:#e2e8f0;font-weight:500;">Worksheet</span>
-                <select id="excel-view-sheet-dropdown" style="padding:4px 8px;background:#0d1426;border:1px solid var(--border-color);border-radius:4px;color:#fff;font-size:0.78rem;outline:none;" onchange="loadViewWorksheet(this.value)"></select>
-                <button class="export-btn secondary" style="padding:4px 10px;font-size:0.74rem;" onclick="loadViewWorksheet()">Load Worksheet</button>
-                <button class="export-btn" style="padding:4px 10px;font-size:0.74rem;" onclick="triggerManualRefresh()">Refresh Now</button>
-              </div>
-              <label style="display:flex;align-items:center;gap:6px;font-size:0.76rem;color:#e2e8f0;cursor:pointer;">
-                <input type="checkbox" id="chk-auto-refresh-30" checked onchange="toggleAutoRefreshSetting(this.checked)"> Auto-refresh every 30 seconds
-              </label>
-            </div>
 
             <!-- Live Grid Summary & Table -->
             <div id="excel-grid-summary" style="font-size:0.74rem;color:var(--color-text-muted);margin-bottom:6px;">
