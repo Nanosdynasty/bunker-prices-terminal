@@ -858,7 +858,27 @@ async function connectOneDriveURL() {
   btn.disabled = true;
   btn.textContent = 'Connecting...';
   errEl.style.display = 'none';
+  if (progEl) progEl.textContent = 'Connecting via backend server...';
 
+  // 1. Try server-side URL downloader API first (bypasses browser CORS completely)
+  try {
+    const data = await apiFetch('/api/connect-url', {
+      method: 'POST',
+      body: JSON.stringify({ url: rawUrl })
+    });
+    if (data && data.selection && data.selection.raw_matrix) {
+      if (progEl) progEl.textContent = '';
+      btn.disabled = false;
+      btn.textContent = 'Connect';
+      updateSyncStateUI(data);
+      closeLinkModal();
+      return;
+    }
+  } catch (backendErr) {
+    console.warn('Backend server URL download failed/unavailable, falling back to browser proxies:', backendErr.message);
+  }
+
+  // 2. Fallback to client-side CORS proxies if server-side fetch is unavailable
   const dlUrl = buildOneDriveDownloadUrl(rawUrl);
 
   const PROXIES = [
@@ -872,7 +892,7 @@ async function connectOneDriveURL() {
   let lastError = '';
   for (let i = 0; i < PROXIES.length; i++) {
     const proxyUrl = PROXIES[i](dlUrl);
-    if (progEl) progEl.textContent = `Trying method ${i + 1} of ${PROXIES.length}...`;
+    if (progEl) progEl.textContent = `Trying browser method ${i + 1} of ${PROXIES.length}...`;
     try {
       const resp = await fetch(proxyUrl, { signal: AbortSignal.timeout(12000) });
       if (!resp.ok) { lastError = `HTTP ${resp.status}`; continue; }

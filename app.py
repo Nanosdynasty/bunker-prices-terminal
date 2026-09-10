@@ -164,6 +164,69 @@ def create_app(test_config=None):
         session.modified = True
         return jsonify(public_state())
 
+    @app.post("/api/connect-url")
+    def connect_url():
+        url = (request.get_json(silent=True) or {}).get("url", "").strip()
+        if not url:
+            raise AppError("Please provide a valid URL.", 400, "missing_url")
+        
+        dl_url = url
+        if "download=1" not in dl_url:
+            dl_url += ("&" if "?" in dl_url else "?") + "download=1"
+
+        try:
+            import urllib.request
+            req = urllib.request.Request(
+                dl_url,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    "Accept": "*/*"
+                }
+            )
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                content = resp.read()
+                
+            if len(content) < 100:
+                raise AppError("Downloaded file is empty or invalid.", 400, "invalid_file")
+
+            if not content.startswith(b"PK\x03\x04"):
+                raise AppError("Downloaded content is not a valid Excel file (.xlsx).", 400, "not_excel")
+
+            save_name = "OneDrive_Sheet.xlsx"
+            root = workbook_root()
+            root.mkdir(parents=True, exist_ok=True)
+            target_path = root / save_name
+            target_path.write_bytes(content)
+
+            stat = target_path.stat()
+            names = workbook_sheet_names(content)
+            sheet = names[0] if names else "Sheet1"
+            raw_rows = workbook_raw_matrix(content, sheet)
+
+            session["selection"] = {
+                "relative_path": target_path.relative_to(root).as_posix(),
+                "filename": target_path.name,
+                "file_modified": modified_iso(stat),
+                "observed_signature": file_signature(stat),
+                "loaded_signature": file_signature(stat),
+                "sheet_names": names,
+                "worksheet": sheet,
+                "last_check": utc_now(),
+                "last_load": utc_now(),
+                "changed_detected": False,
+                "stale": False,
+                "error": None,
+                "preview": workbook_preview(content, sheet),
+                "raw_matrix": raw_rows,
+            }
+            session.modified = True
+            return jsonify(public_state())
+        except AppError:
+            raise
+        except Exception as exc:
+            raise AppError(f"Failed to fetch OneDrive file from URL: {str(exc)}", 502, "fetch_failed") from exc
+
+
     @app.post("/api/select-sheet")
     def select_sheet():
         selected = require_selection()
