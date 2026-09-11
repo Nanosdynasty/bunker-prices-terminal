@@ -500,7 +500,7 @@ async function syncFromPathInput() {
   if (!path) {
     if (statusEl) {
       statusEl.style.color = 'var(--color-danger)';
-      statusEl.textContent = '❌ Please paste a valid folder path or OneDrive link.';
+      statusEl.textContent = '❌ Please paste a valid local folder path or file path.';
     }
     return;
   }

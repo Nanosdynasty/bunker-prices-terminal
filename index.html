@@ -183,12 +183,12 @@
             <!-- 📂 Paste Folder Path / Link Sync Bar -->
             <div style="background:rgba(13,20,38,0.85);border:1px solid var(--color-primary);border-radius:8px;padding:14px 16px;margin-bottom:12px;">
               <label style="font-size:0.86rem;font-weight:700;color:var(--color-text-main);display:block;margin-bottom:6px;">
-                🔗 Paste OneDrive Link or Folder Path:
+                📁 Paste Local Folder or Excel File Path:
               </label>
               <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
                 <input type="text" id="folder-path-input" 
-                       placeholder="Paste folder path (e.g. C:\\Users\\deepak\\OneDrive\\onedrivebunker) or OneDrive URL..." 
-                       value="C:\Users\deepak\OneDrive\onedrivebunker" 
+                       placeholder="Paste local folder path (e.g. C:\\Users\\deepak\\onedrivebunker) or file path..." 
+                       value="C:\Users\deepak\onedrivebunker" 
                        style="flex:1;min-width:260px;padding:8px 12px;background:var(--bg-base);border:1px solid var(--border-color);border-radius:5px;color:var(--color-text-main);font-family:'JetBrains Mono',monospace;font-size:0.8rem;outline:none;"
                        onkeydown="if(event.key==='Enter') syncFromPathInput()">
                 <button onclick="syncFromPathInput()" class="export-btn" style="padding:8px 18px;font-size:0.8rem;font-weight:700;background:var(--color-primary);color:#fff;white-space:nowrap;box-shadow:0 2px 10px rgba(0,130,240,0.4);">

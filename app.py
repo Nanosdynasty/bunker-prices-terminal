@@ -24,7 +24,7 @@ except ImportError:
 EXCEL_ERRORS = {"#NULL!", "#DIV/0!", "#VALUE!", "#REF!", "#NAME?", "#NUM!", "#N/A", "#GETTING_DATA"}
 MAX_ROWS = 2000
 MAX_COLUMNS = 200
-DEFAULT_WORKBOOK_ROOT = r"C:\Users\deepak\OneDrive\onedrivebunker"
+DEFAULT_WORKBOOK_ROOT = r"C:\Users\deepak\onedrivebunker"
 _locks_guard = threading.Lock()
 _session_locks: dict[str, threading.Lock] = {}
 
@@ -270,7 +270,7 @@ def create_app(test_config=None):
 
         if not target_file or not target_file.exists():
             raise AppError(
-                f"Folder or file path could not be found: '{raw_path}'. If using cloud deployment, please upload your Excel file or paste a OneDrive share URL.",
+                f"Folder or file path could not be found: '{raw_path}'. Please check that the local folder or file path exists on your PC.",
                 404, "path_not_found"
             )
 
